@@ -127,8 +127,15 @@ jobs:
     if: needs.validate.outputs.should-deploy == 'true'
     
     steps:
-      - name: Checkout
+      - name: Checkout repositório consumidor
         uses: actions/checkout@v4
+      
+      - name: Checkout repositório de scripts
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/mule-api-flex-gateway-reusable-workflows
+          path: .pipeline-scripts
+          ref: main
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -145,7 +152,7 @@ jobs:
 
       - name: Publicar no Exchange
         run: |
-          bash scripts/publish-to-exchange.sh \
+          bash .pipeline-scripts/scripts/publish-to-exchange.sh \
             "${{ needs.validate.outputs.api-name }}" \
             "${{ needs.validate.outputs.api-version }}" \
             "${{ inputs.environment }}"
@@ -170,8 +177,15 @@ jobs:
       exposed-path: ${{ steps.get-api-id.outputs.exposed-path }}
     
     steps:
-      - name: Checkout
+      - name: Checkout repositório consumidor
         uses: actions/checkout@v4
+      
+      - name: Checkout repositório de scripts
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/mule-api-flex-gateway-reusable-workflows
+          path: .pipeline-scripts
+          ref: main
 
       - name: Setup ferramentas
         run: |
@@ -193,13 +207,13 @@ jobs:
 
       - name: Verificar API existente
         run: |
-          bash scripts/check-api-exists.sh \
+          bash .pipeline-scripts/scripts/check-api-exists.sh \
             "${{ needs.validate.outputs.api-name }}" \
             "${{ inputs.environment }}"
 
       - name: Deploy API
         run: |
-          bash scripts/deploy-api.sh \
+          bash .pipeline-scripts/scripts/deploy-api.sh \
             "${{ needs.validate.outputs.api-name }}" \
             "${{ needs.validate.outputs.api-version }}" \
             "${{ inputs.environment }}" \

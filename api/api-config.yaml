@@ -1,0 +1,178 @@
+# Configuração da API para Deploy no Flex Gateway
+# Este arquivo deve ser editado pelo time de desenvolvimento
+
+# Informações Básicas da API
+api:
+  # Nome da API (será usado no Exchange e API Manager)
+  name: "minha-api"
+  
+  # Sigla do projeto (será usada para padronizar o path)
+  # Exemplo: "CRF" para Crefisa, "FIN" para Financeiro, etc.
+  projectAcronym: "CRF"
+  
+  # Descrição da API
+  description: "Descrição detalhada da API"
+  
+  # Caminho do arquivo Swagger/OpenAPI (relativo à raiz do repositório)
+  swaggerPath: "app/swagger.yaml"
+  
+  # Tipo de especificação: "oas" (OpenAPI/Swagger) ou "raml"
+  specType: "oas"
+  
+  # Tipo de exposição: "public" (exposta na borda/internet) ou "internal" (apenas rede interna)
+  exposureType: "public"
+  
+  # Tags para organização no Exchange
+  tags:
+    - "backend"
+    - "rest"
+  
+  # Contato do time responsável
+  contact:
+    team: "Time de Backend"
+    email: "backend@exemplo.com"
+
+# Configuração de Versão
+version:
+  # Versão atual da API (SEMVER: major.minor.patch)
+  current: "1.0.0"
+  
+  # Estratégia de versionamento no path
+  # Opções: "major" (v1), "major-minor" (v1.0), "full" (v1.0.0), "none" (sem versão no path)
+  pathStrategy: "major"
+
+# Configuração de Ambientes
+environments:
+  # Configuração para DEV
+  dev:
+    enabled: true
+    upstreamUrl: "https://dev-backend.exemplo.com"
+    environmentId: "dev-env-id"
+    organizationId: "org-id"
+    basePath: "/minha-api"
+    
+  # Configuração para QA/STAGING
+  staging:
+    enabled: false
+    upstreamUrl: "https://staging-backend.exemplo.com"
+    environmentId: "staging-env-id"
+    organizationId: "org-id"
+    basePath: "/minha-api"
+    
+  # Configuração para PRODUÇÃO
+  prod:
+    enabled: false
+    upstreamUrl: "https://prod-backend.exemplo.com"
+    environmentId: "prod-env-id"
+    organizationId: "org-id"
+    basePath: "/minha-api"
+
+# Políticas da API
+policies:
+  # Rate Limiting
+  - name: "rate-limiting-sla-based"
+    enabled: true
+    configuration:
+      rateLimits:
+        - timePeriodInMilliseconds: 60000
+          maximumRequests: 100
+    order: 1
+    
+  # Client ID Enforcement
+  - name: "client-id-enforcement"
+    enabled: true
+    configuration:
+      credentialsOriginHasHttpBasicAuthenticationHeader: "customExpression"
+      clientIdExpression: "#[attributes.headers['client_id']]"
+      clientSecretExpression: "#[attributes.headers['client_secret']]"
+    order: 2
+    
+  # CORS
+  - name: "cors"
+    enabled: true
+    configuration:
+      allowedOrigins:
+        - "*"
+      allowedMethods:
+        - "GET"
+        - "POST"
+        - "PUT"
+        - "DELETE"
+        - "OPTIONS"
+      allowedHeaders:
+        - "Content-Type"
+        - "Authorization"
+        - "client_id"
+        - "client_secret"
+      maxAge: 3600
+    order: 3
+    
+  # JWT Validation (exemplo - desabilitado por padrão)
+  - name: "jwt-validation"
+    enabled: false
+    configuration:
+      jwtOrigin: "httpBearerAuthenticationHeader"
+      signingMethod: "rsa"
+      jwtKeyOrigin: "jwks"
+      jwksUrl: "https://seu-idp.exemplo.com/.well-known/jwks.json"
+      jwksCacheTtl: 3600
+      skipClientIdValidation: false
+    order: 4
+
+# Alertas e Monitoramento
+alerts:
+  # Alerta de alta taxa de erro
+  - name: "high-error-rate"
+    enabled: true
+    severity: "warning"
+    condition:
+      type: "response-code"
+      codes: ["5xx"]
+      threshold: 10
+      periodMinutes: 5
+    notification:
+      recipients:
+        - "backend@exemplo.com"
+      
+  # Alerta de violação de SLA
+  - name: "sla-violation"
+    enabled: true
+    severity: "critical"
+    condition:
+      type: "response-time"
+      thresholdMs: 1000
+      percentile: 95
+      periodMinutes: 5
+    notification:
+      recipients:
+        - "backend@exemplo.com"
+        
+  # Alerta de limite de requisições
+  - name: "request-limit"
+    enabled: true
+    severity: "info"
+    condition:
+      type: "request-count"
+      threshold: 1000
+      periodMinutes: 1
+    notification:
+      recipients:
+        - "backend@exemplo.com"
+
+# Configurações Avançadas
+advanced:
+  # Timeout da API (em segundos)
+  timeout: 30
+  
+  # Habilitar analytics
+  analytics: true
+  
+  # Configuração de proxy
+  proxy:
+    preserveHostHeader: false
+    
+  # Configuração de TLS
+  tls:
+    enabled: true
+    minVersion: "TLSv1.2"
+

@@ -1,0 +1,189 @@
+# Políticas Obrigatórias - Governança Corporativa
+# Estas políticas NÃO PODEM ser desabilitadas pelos times de desenvolvimento
+# Gerenciadas pelo Time de Gateway/Segurança
+
+# ⚠️ IMPORTANTE:
+# - Políticas aqui definidas são SEMPRE aplicadas
+# - Times de dev NÃO podem desabilitar estas políticas
+# - Mudanças neste arquivo exigem aprovação do time de segurança
+# - Estas políticas têm precedência sobre as configuradas em api-config.yaml
+# - Configurações estão OCULTAS para os devs por segurança
+
+# Lista de políticas aplicadas (VISÍVEL para devs)
+# Configurações detalhadas estão em arquivo separado protegido
+visiblePolicies:
+  - name: "client-id-enforcement"
+    description: "Autenticação obrigatória por Client ID"
+    canBeDisabled: false
+    order: 1
+    
+  - name: "rate-limiting-sla-based"
+    description: "Limite de requisições para proteção"
+    canBeDisabled: false
+    order: 2
+    
+  - name: "cors"
+    description: "Controle de origens permitidas"
+    canBeDisabled: false
+    order: 3
+
+# Configurações reais (OCULTAS - apenas Time de Gateway)
+# Este bloco não deve ser exposto aos devs
+mandatory:
+  # Política obrigatória 1: Client ID Enforcement
+  # Garante que todas as APIs exijam credenciais
+  - name: "client-id-enforcement"
+    description: "Autenticação obrigatória por Client ID"
+    enabled: true
+    appliesTo: "all"  # "all", "public" ou "internal"
+    configuration:
+      credentialsOriginHasHttpBasicAuthenticationHeader: "customExpression"
+      clientIdExpression: "#[attributes.headers['client_id']]"
+      clientSecretExpression: "#[attributes.headers['client_secret']]"
+    order: 1
+    canBeDisabled: false
+    
+  # Política obrigatória 2: Rate Limiting Básico
+  # Proteção contra DDoS e abuso
+  - name: "rate-limiting-sla-based"
+    description: "Rate limiting mínimo para proteção"
+    enabled: true
+    appliesTo: "public"  # Apenas APIs públicas
+    configuration:
+      rateLimits:
+        - timePeriodInMilliseconds: 60000
+          maximumRequests: 5000
+      clusterizable: true
+      exposeHeaders: true
+    order: 2
+    canBeDisabled: false
+    
+  # Política obrigatória 3: CORS Controlado
+  # Previne acesso não autorizado via browser
+  - name: "cors"
+    description: "CORS com origens controladas"
+    enabled: true
+    appliesTo: "public"  # Apenas APIs públicas (expostas na borda)
+    configuration:
+      allowedOrigins:
+        - "https://*.exemplo.com"
+      allowedMethods:
+        - "GET"
+        - "POST"
+        - "PUT"
+        - "DELETE"
+        - "OPTIONS"
+      allowedHeaders:
+        - "Content-Type"
+        - "Authorization"
+        - "client_id"
+        - "client_secret"
+      exposedHeaders: []
+      maxAge: 3600
+    order: 3
+    canBeDisabled: false
+
+# Políticas opcionais que os times PODEM habilitar
+# Estas são sugestões, mas podem ser desabilitadas se necessário
+optional:
+  # JWT Validation - para APIs que usam tokens
+  - name: "jwt-validation"
+    description: "Validação de JWT tokens"
+    enabled: false  # Desabilitada por padrão, times podem habilitar
+    configuration:
+      jwtOrigin: "httpBearerAuthenticationHeader"
+      signingMethod: "rsa"
+      jwtKeyOrigin: "jwks"
+      jwksUrl: "https://auth.exemplo.com/.well-known/jwks.json"
+      jwksCacheTtl: 3600
+      skipClientIdValidation: false
+    order: 10
+    canBeDisabled: true
+    
+  # IP Whitelist - para APIs internas
+  - name: "ip-whitelist"
+    description: "Restrição por IP"
+    enabled: false
+    configuration:
+      ipAddresses:
+        - "10.0.0.0/8"
+    order: 11
+    canBeDisabled: true
+    
+  # Message Logging - para auditoria
+  - name: "message-logging"
+    description: "Logging de requisições"
+    enabled: false
+    configuration:
+      loggingLevel: "INFO"
+      displayBody: false  # Não logar corpo por padrão (pode ter dados sensíveis)
+      displayHeaders: true
+    order: 12
+    canBeDisabled: true
+
+# Regras de Rate Limiting por Ambiente
+# Define limites máximos que não podem ser excedidos
+rateLimitRules:
+  dev:
+    maxRequestsPerMinute: 10000  # Mais permissivo em dev
+    maxRequestsPerHour: 500000
+    
+  staging:
+    maxRequestsPerMinute: 5000
+    maxRequestsPerHour: 250000
+    
+  prod:
+    maxRequestsPerMinute: 5000  # Limite rigoroso em prod
+    maxRequestsPerHour: 200000
+
+# Regras de CORS por Ambiente
+corsRules:
+  dev:
+    allowAllOrigins: true  # Mais permissivo em dev
+    
+  staging:
+    allowAllOrigins: false
+    allowedOrigins:
+      - "https://*.staging.exemplo.com"
+      
+  prod:
+    allowAllOrigins: false  # Mais restritivo em prod
+    allowedOrigins:
+      - "https://*.exemplo.com"
+      - "https://exemplo.com"
+
+# Políticas que requerem aprovação especial
+requiresApproval:
+  # Políticas que, se habilitadas, exigem aprovação do time de segurança
+  - "ip-whitelist"
+  - "basic-authentication"
+  - "oauth-2.0-token-validation"
+  - "openam-oauth-token-enforcement"
+  
+# Configurações de Segurança Globais
+security:
+  # TLS mínimo requerido
+  minimumTlsVersion: "TLSv1.2"
+  
+  # Headers de segurança obrigatórios
+  requiredSecurityHeaders:
+    - "X-Content-Type-Options: nosniff"
+    - "X-Frame-Options: DENY"
+    - "X-XSS-Protection: 1; mode=block"
+    
+  # Timeouts máximos
+  maxTimeout: 60  # segundos
+  
+  # Tamanho máximo de payload
+  maxPayloadSize: 10485760  # 10 MB
+
+# Auditoria
+audit:
+  # Todas as mudanças em políticas obrigatórias devem ser auditadas
+  enabled: true
+  logChanges: true
+  requiresJustification: true
+  approvers:
+    - "time-seguranca@exemplo.com"
+    - "time-gateway@exemplo.com"
+

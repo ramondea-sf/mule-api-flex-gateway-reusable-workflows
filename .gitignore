@@ -1,0 +1,57 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos temporários
+*.tmp
+*.temp
+*.log
+/tmp/
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+*.sublime-*
+
+# Credenciais (NÃO commitar!)
+.env
+.env.local
+secrets.yaml
+credentials.json
+*.pem
+*.key
+
+# Arquivos de backup
+*.bak
+*.backup
+*~
+
+# Build outputs
+dist/
+build/
+out/
+
+# Cache
+.cache/
+*.cache
+
+# OS
+.DS_Store
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# Anypoint CLI cache
+.anypoint/
+

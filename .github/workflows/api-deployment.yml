@@ -1,0 +1,403 @@
+name: API Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - dev
+      - staging
+      - main
+    paths:
+      - 'api/**'
+      - 'app/**'
+      - '.github/workflows/api-deployment.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Ambiente para deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      force_update:
+        description: 'Forçar atualização mesmo sem mudanças'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  # Versão do Anypoint CLI
+  ANYPOINT_CLI_VERSION: "4.0.0"
+
+jobs:
+  # Job 1: Validação e Preparação
+  validate:
+    name: Validar Configuração
+    runs-on: ubuntu-latest
+    outputs:
+      api-name: ${{ steps.parse-config.outputs.api-name }}
+      api-version: ${{ steps.parse-config.outputs.api-version }}
+      environment: ${{ steps.determine-env.outputs.environment }}
+      should-deploy: ${{ steps.check-changes.outputs.should-deploy }}
+      
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Instalar yq para parsing de YAML
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Determinar ambiente
+        id: determine-env
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+          else
+            case "${{ github.ref_name }}" in
+              dev)
+                ENVIRONMENT="dev"
+                ;;
+              staging)
+                ENVIRONMENT="staging"
+                ;;
+              main)
+                ENVIRONMENT="prod"
+                ;;
+              *)
+                echo "Branch não mapeada para nenhum ambiente"
+                exit 1
+                ;;
+            esac
+          fi
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+          echo "✅ Ambiente determinado: $ENVIRONMENT"
+
+      - name: Validar arquivo de configuração
+        run: |
+          if [ ! -f "api/api-config.yaml" ]; then
+            echo "❌ Arquivo api/api-config.yaml não encontrado!"
+            exit 1
+          fi
+          
+          if [ ! -f "api/version.yaml" ]; then
+            echo "❌ Arquivo api/version.yaml não encontrado!"
+            exit 1
+          fi
+          
+          echo "✅ Arquivos de configuração encontrados"
+
+      - name: Parsear configuração da API
+        id: parse-config
+        run: |
+          API_NAME=$(yq eval '.api.name' api/api-config.yaml)
+          API_VERSION=$(yq eval '.version.current' api/api-config.yaml)
+          PROJECT_ACRONYM=$(yq eval '.api.projectAcronym' api/api-config.yaml)
+          SWAGGER_PATH=$(yq eval '.api.swaggerPath' api/api-config.yaml)
+          
+          if [ -z "$API_NAME" ] || [ "$API_NAME" == "null" ]; then
+            echo "❌ Nome da API não configurado!"
+            exit 1
+          fi
+          
+          if [ -z "$API_VERSION" ] || [ "$API_VERSION" == "null" ]; then
+            echo "❌ Versão da API não configurada!"
+            exit 1
+          fi
+          
+          if [ ! -f "$SWAGGER_PATH" ]; then
+            echo "❌ Arquivo Swagger não encontrado: $SWAGGER_PATH"
+            exit 1
+          fi
+          
+          echo "api-name=$API_NAME" >> $GITHUB_OUTPUT
+          echo "api-version=$API_VERSION" >> $GITHUB_OUTPUT
+          echo "project-acronym=$PROJECT_ACRONYM" >> $GITHUB_OUTPUT
+          echo "swagger-path=$SWAGGER_PATH" >> $GITHUB_OUTPUT
+          
+          echo "✅ Configuração validada:"
+          echo "   - API: $API_NAME"
+          echo "   - Versão: $API_VERSION"
+          echo "   - Projeto: $PROJECT_ACRONYM"
+
+      - name: Validar versão SEMVER
+        run: |
+          VERSION="${{ steps.parse-config.outputs.api-version }}"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "❌ Versão inválida: $VERSION"
+            echo "A versão deve seguir o formato SEMVER: major.minor.patch (ex: 1.0.0)"
+            exit 1
+          fi
+          echo "✅ Versão SEMVER válida: $VERSION"
+
+      - name: Verificar mudanças
+        id: check-changes
+        run: |
+          FORCE_UPDATE="${{ github.event.inputs.force_update }}"
+          
+          if [ "$FORCE_UPDATE" == "true" ]; then
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            echo "🔄 Deploy forçado via workflow_dispatch"
+            exit 0
+          fi
+          
+          # Verifica se houve mudanças nos arquivos relevantes
+          if git diff --quiet HEAD~1 HEAD -- api/ app/ 2>/dev/null; then
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
+            echo "⏭️  Nenhuma mudança detectada, pulando deploy"
+          else
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            echo "✅ Mudanças detectadas, prosseguindo com deploy"
+          fi
+
+  # Job 2: Publicar no Exchange
+  publish-to-exchange:
+    name: Publicar Especificação no Exchange
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.should-deploy == 'true'
+    
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Instalar Anypoint CLI
+        run: |
+          npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+          echo "✅ Anypoint CLI instalado"
+
+      - name: Configurar credenciais Anypoint
+        run: |
+          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
+          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+          echo "✅ Credenciais configuradas"
+
+      - name: Publicar especificação no Exchange
+        id: publish-exchange
+        run: |
+          bash scripts/publish-to-exchange.sh \
+            "${{ needs.validate.outputs.api-name }}" \
+            "${{ needs.validate.outputs.api-version }}" \
+            "${{ needs.validate.outputs.environment }}"
+
+      - name: Upload do Exchange Asset ID
+        uses: actions/upload-artifact@v4
+        with:
+          name: exchange-asset-id
+          path: /tmp/exchange-asset-id.txt
+          retention-days: 1
+
+  # Job 3: Deploy da API
+  deploy-api:
+    name: Deploy da API no API Manager
+    runs-on: ubuntu-latest
+    needs: [validate, publish-to-exchange]
+    
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Instalar ferramentas necessárias
+        run: |
+          npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Configurar credenciais Anypoint
+        run: |
+          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
+          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+
+      - name: Download do Exchange Asset ID
+        uses: actions/download-artifact@v4
+        with:
+          name: exchange-asset-id
+          path: /tmp/
+
+      - name: Verificar se API existe
+        id: check-api
+        run: |
+          bash scripts/check-api-exists.sh \
+            "${{ needs.validate.outputs.api-name }}" \
+            "${{ needs.validate.outputs.environment }}"
+
+      - name: Registrar ou Atualizar API
+        id: deploy-api
+        run: |
+          bash scripts/deploy-api.sh \
+            "${{ needs.validate.outputs.api-name }}" \
+            "${{ needs.validate.outputs.api-version }}" \
+            "${{ needs.validate.outputs.environment }}" \
+            "${{ steps.check-api.outputs.api-exists }}"
+
+      - name: Upload do API ID
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-id
+          path: /tmp/api-id.txt
+          retention-days: 1
+
+  # Job 4: Aplicar Políticas
+  apply-policies:
+    name: Aplicar Políticas da API
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-api]
+    
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Instalar ferramentas necessárias
+        run: |
+          npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Configurar credenciais Anypoint
+        run: |
+          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
+          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+
+      - name: Download do API ID
+        uses: actions/download-artifact@v4
+        with:
+          name: api-id
+          path: /tmp/
+
+      - name: Aplicar políticas
+        run: |
+          bash scripts/apply-policies.sh \
+            "${{ needs.validate.outputs.environment }}"
+
+  # Job 5: Configurar Alertas
+  configure-alerts:
+    name: Configurar Alertas
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-api]
+    
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Instalar ferramentas necessárias
+        run: |
+          npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Configurar credenciais Anypoint
+        run: |
+          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
+          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+
+      - name: Download do API ID
+        uses: actions/download-artifact@v4
+        with:
+          name: api-id
+          path: /tmp/
+
+      - name: Configurar alertas
+        run: |
+          bash scripts/configure-alerts.sh \
+            "${{ needs.validate.outputs.environment }}"
+
+  # Job 6: Atualizar histórico de versões
+  update-version-history:
+    name: Atualizar Histórico de Versões
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-api, apply-policies, configure-alerts]
+    if: always() && needs.deploy-api.result == 'success'
+    
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Instalar yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Atualizar version.yaml
+        run: |
+          bash scripts/update-version-history.sh \
+            "${{ needs.validate.outputs.api-version }}" \
+            "${{ needs.validate.outputs.environment }}" \
+            "${{ github.sha }}"
+
+      - name: Commit e push do histórico atualizado
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          if git diff --quiet api/version.yaml; then
+            echo "Nenhuma mudança no histórico de versões"
+          else
+            git add api/version.yaml
+            git commit -m "chore: atualizar histórico de versões para ${{ needs.validate.outputs.api-version }} em ${{ needs.validate.outputs.environment }} [skip ci]"
+            git push
+            echo "✅ Histórico de versões atualizado"
+          fi
+
+  # Job 7: Notificação e Resumo
+  notify:
+    name: Notificar Resultado
+    runs-on: ubuntu-latest
+    needs: [validate, publish-to-exchange, deploy-api, apply-policies, configure-alerts]
+    if: always()
+    
+    steps:
+      - name: Gerar resumo do deploy
+        run: |
+          echo "# 🚀 Resumo do Deploy da API" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**API:** ${{ needs.validate.outputs.api-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Versão:** ${{ needs.validate.outputs.api-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Ambiente:** ${{ needs.validate.outputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Status dos Jobs:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Validação: ${{ needs.validate.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Publicação no Exchange: ${{ needs.publish-to-exchange.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Deploy da API: ${{ needs.deploy-api.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Aplicação de Políticas: ${{ needs.apply-policies.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Configuração de Alertas: ${{ needs.configure-alerts.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.deploy-api.result }}" == "success" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## ✅ Deploy realizado com sucesso!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## ❌ Falha no deploy" >> $GITHUB_STEP_SUMMARY
+            echo "Verifique os logs dos jobs acima para mais detalhes." >> $GITHUB_STEP_SUMMARY
+          fi
+

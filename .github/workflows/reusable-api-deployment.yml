@@ -1,0 +1,338 @@
+name: Reusable API Deployment
+
+# Este workflow pode ser reutilizado por outros repositórios
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Ambiente para deploy (dev, staging, prod)'
+        required: true
+        type: string
+      api-config-path:
+        description: 'Caminho do arquivo de configuração'
+        required: false
+        type: string
+        default: 'api/api-config.yaml'
+      swagger-path-override:
+        description: 'Override do caminho do swagger'
+        required: false
+        type: string
+        default: ''
+      force-update:
+        description: 'Forçar atualização'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      # Secrets da ORGANIZAÇÃO (configurados 1x, compartilhados)
+      ANYPOINT_CLIENT_ID:
+        required: true
+      ANYPOINT_CLIENT_SECRET:
+        required: true
+    outputs:
+      api-id:
+        description: "ID da API criada/atualizada"
+        value: ${{ jobs.deploy-api.outputs.api-id }}
+      api-version:
+        description: "Versão da API deployada"
+        value: ${{ jobs.validate.outputs.api-version }}
+      exposed-path:
+        description: "Path exposto no Flex Gateway"
+        value: ${{ jobs.deploy-api.outputs.exposed-path }}
+
+env:
+  ANYPOINT_CLI_VERSION: "4.0.0"
+
+jobs:
+  validate:
+    name: Validar Configuração
+    runs-on: ubuntu-latest
+    outputs:
+      api-name: ${{ steps.parse-config.outputs.api-name }}
+      api-version: ${{ steps.parse-config.outputs.api-version }}
+      should-deploy: ${{ steps.check-changes.outputs.should-deploy }}
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Instalar yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Validar e parsear configuração
+        id: parse-config
+        run: |
+          CONFIG_FILE="${{ inputs.api-config-path }}"
+          
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "❌ Arquivo $CONFIG_FILE não encontrado!"
+            exit 1
+          fi
+          
+          API_NAME=$(yq eval '.api.name' $CONFIG_FILE)
+          API_VERSION=$(yq eval '.version.current' $CONFIG_FILE)
+          SWAGGER_PATH="${{ inputs.swagger-path-override }}"
+          
+          if [ -z "$SWAGGER_PATH" ]; then
+            SWAGGER_PATH=$(yq eval '.api.swaggerPath' $CONFIG_FILE)
+          fi
+          
+          # Validações
+          if [ -z "$API_NAME" ] || [ "$API_NAME" == "null" ]; then
+            echo "❌ Nome da API não configurado!"
+            exit 1
+          fi
+          
+          if ! echo "$API_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "❌ Versão inválida: $API_VERSION (use SEMVER: X.Y.Z)"
+            exit 1
+          fi
+          
+          if [ ! -f "$SWAGGER_PATH" ]; then
+            echo "❌ Arquivo Swagger não encontrado: $SWAGGER_PATH"
+            exit 1
+          fi
+          
+          echo "api-name=$API_NAME" >> $GITHUB_OUTPUT
+          echo "api-version=$API_VERSION" >> $GITHUB_OUTPUT
+          echo "swagger-path=$SWAGGER_PATH" >> $GITHUB_OUTPUT
+          
+          echo "✅ Configuração válida: $API_NAME v$API_VERSION"
+
+      - name: Verificar mudanças
+        id: check-changes
+        run: |
+          if [ "${{ inputs.force-update }}" == "true" ]; then
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          if git diff --quiet HEAD~1 HEAD -- api/ app/ 2>/dev/null; then
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
+          else
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+          fi
+
+  # Carregar políticas obrigatórias (se configurado)
+  load-mandatory-policies:
+    name: Carregar Políticas Obrigatórias
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.should-deploy == 'true'
+    outputs:
+      has-mandatory-policies: ${{ steps.check-mandatory.outputs.has-policies }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verificar políticas obrigatórias
+        id: check-mandatory
+        run: |
+          if [ -f "policies/mandatory-policies.yaml" ]; then
+            echo "has-policies=true" >> $GITHUB_OUTPUT
+            echo "✅ Políticas obrigatórias encontradas"
+          else
+            echo "has-policies=false" >> $GITHUB_OUTPUT
+            echo "ℹ️  Nenhuma política obrigatória configurada"
+          fi
+
+      - name: Upload políticas obrigatórias
+        if: steps.check-mandatory.outputs.has-policies == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mandatory-policies
+          path: policies/mandatory-policies.yaml
+          retention-days: 1
+
+  publish-to-exchange:
+    name: Publicar no Exchange
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.should-deploy == 'true'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Instalar Anypoint CLI
+        run: npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+
+      - name: Configurar credenciais
+        run: |
+          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
+          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+
+      - name: Publicar no Exchange
+        run: |
+          bash scripts/publish-to-exchange.sh \
+            "${{ needs.validate.outputs.api-name }}" \
+            "${{ needs.validate.outputs.api-version }}" \
+            "${{ inputs.environment }}"
+
+      - name: Upload Exchange Asset ID
+        uses: actions/upload-artifact@v4
+        with:
+          name: exchange-asset-id
+          path: /tmp/exchange-asset-id.txt
+          retention-days: 1
+
+  deploy-api:
+    name: Deploy API
+    runs-on: ubuntu-latest
+    needs: [validate, publish-to-exchange]
+    outputs:
+      api-id: ${{ steps.get-api-id.outputs.api-id }}
+      exposed-path: ${{ steps.get-api-id.outputs.exposed-path }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ferramentas
+        run: |
+          npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Configurar credenciais
+        run: |
+          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
+          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+
+      - name: Download Exchange Asset
+        uses: actions/download-artifact@v4
+        with:
+          name: exchange-asset-id
+          path: /tmp/
+
+      - name: Verificar API existente
+        run: |
+          bash scripts/check-api-exists.sh \
+            "${{ needs.validate.outputs.api-name }}" \
+            "${{ inputs.environment }}"
+
+      - name: Deploy API
+        run: |
+          bash scripts/deploy-api.sh \
+            "${{ needs.validate.outputs.api-name }}" \
+            "${{ needs.validate.outputs.api-version }}" \
+            "${{ inputs.environment }}" \
+            "$(cat /tmp/api-exists.txt 2>/dev/null || echo 'false')"
+
+      - name: Obter API ID
+        id: get-api-id
+        run: |
+          API_ID=$(cat /tmp/api-id.txt)
+          EXPOSED_PATH=$(cat /tmp/exposed-path.txt)
+          echo "api-id=$API_ID" >> $GITHUB_OUTPUT
+          echo "exposed-path=$EXPOSED_PATH" >> $GITHUB_OUTPUT
+
+      - name: Upload API ID
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-id
+          path: |
+            /tmp/api-id.txt
+            /tmp/exposed-path.txt
+          retention-days: 1
+
+  apply-policies:
+    name: Aplicar Políticas
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-api, load-mandatory-policies]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ferramentas
+        run: |
+          npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Configurar credenciais
+        run: |
+          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
+          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+
+      - name: Download API ID
+        uses: actions/download-artifact@v4
+        with:
+          name: api-id
+          path: /tmp/
+
+      - name: Download políticas obrigatórias
+        if: needs.load-mandatory-policies.outputs.has-mandatory-policies == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: mandatory-policies
+          path: /tmp/
+
+      - name: Aplicar políticas
+        run: |
+          bash scripts/apply-policies-safe.sh \
+            "${{ inputs.environment }}"
+
+  configure-alerts:
+    name: Configurar Alertas
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-api]
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup ferramentas
+        run: |
+          npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Configurar credenciais
+        run: |
+          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
+          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+
+      - name: Download API ID
+        uses: actions/download-artifact@v4
+        with:
+          name: api-id
+          path: /tmp/
+
+      - name: Configurar alertas
+        run: |
+          bash scripts/configure-alerts.sh "${{ inputs.environment }}"
+
+  notify:
+    name: Notificar Resultado
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-api, apply-policies, configure-alerts]
+    if: always()
+    
+    steps:
+      - name: Gerar resumo
+        run: |
+          echo "# 🚀 Deploy da API" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**API:** ${{ needs.validate.outputs.api-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Versão:** ${{ needs.validate.outputs.api-version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Ambiente:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ needs.deploy-api.result == 'success' && '✅ Sucesso' || '❌ Falha' }}" >> $GITHUB_STEP_SUMMARY
+

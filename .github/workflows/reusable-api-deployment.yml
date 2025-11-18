@@ -119,38 +119,6 @@ jobs:
             echo "should-deploy=true" >> $GITHUB_OUTPUT
           fi
 
-  # Carregar políticas obrigatórias (se configurado)
-  # TEMPORARIAMENTE DESABILITADO - Focando apenas em Exchange e API Manager
-  # load-mandatory-policies:
-  #   name: Carregar Políticas Obrigatórias
-  #   runs-on: ubuntu-latest
-  #   needs: validate
-  #   if: needs.validate.outputs.should-deploy == 'true'
-  #   outputs:
-  #     has-mandatory-policies: ${{ steps.check-mandatory.outputs.has-policies }}
-  #   
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v4
-  #
-  #     - name: Verificar políticas obrigatórias
-  #       id: check-mandatory
-  #       run: |
-  #         if [ -f "policies/mandatory-policies.yaml" ]; then
-  #           echo "has-policies=true" >> $GITHUB_OUTPUT
-  #           echo "✅ Políticas obrigatórias encontradas"
-  #         else
-  #           echo "has-policies=false" >> $GITHUB_OUTPUT
-  #           echo "ℹ️  Nenhuma política obrigatória configurada"
-  #         fi
-  #
-  #     - name: Upload políticas obrigatórias
-  #       if: steps.check-mandatory.outputs.has-policies == 'true'
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: mandatory-policies
-  #         path: policies/mandatory-policies.yaml
-  #         retention-days: 1
 
   publish-to-exchange:
     name: Publicar no Exchange
@@ -168,7 +136,7 @@ jobs:
           node-version: '18'
 
       - name: Instalar Anypoint CLI
-        run: npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+        run: npm install -g anypoint-cli-v4
 
       - name: Configurar credenciais
         run: |

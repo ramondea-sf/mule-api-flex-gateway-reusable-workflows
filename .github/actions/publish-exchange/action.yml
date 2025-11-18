@@ -1,0 +1,25 @@
+name: 'Publicar no Exchange'
+description: 'Publica especificação da API no Anypoint Exchange'
+
+inputs:
+  api-name:
+    description: 'Nome da API'
+    required: true
+  api-version:
+    description: 'Versão da API'
+    required: true
+  environment:
+    description: 'Ambiente (dev, qas, prod)'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Executar script de publicação
+      shell: bash
+      run: |
+        bash ${{ github.action_path }}/../../scripts/publish-to-exchange.sh \
+          "${{ inputs.api-name }}" \
+          "${{ inputs.api-version }}" \
+          "${{ inputs.environment }}"
+

@@ -127,13 +127,7 @@ jobs:
     if: needs.validate.outputs.should-deploy == 'true'
     
     steps:
-      - name: Checkout workflow reutilizável (scripts)
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository }}
-          path: .pipeline-scripts
-      
-      - name: Checkout repositório consumidor (configs)
+      - name: Checkout repositório consumidor
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -150,11 +144,11 @@ jobs:
           anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
 
       - name: Publicar no Exchange
-        run: |
-          bash .pipeline-scripts/scripts/publish-to-exchange.sh \
-            "${{ needs.validate.outputs.api-name }}" \
-            "${{ needs.validate.outputs.api-version }}" \
-            "${{ inputs.environment }}"
+        uses: ramondea-sf/mule-api-flex-gateway-reusable-workflows/.github/actions/publish-exchange@main
+        with:
+          api-name: ${{ needs.validate.outputs.api-name }}
+          api-version: ${{ needs.validate.outputs.api-version }}
+          environment: ${{ inputs.environment }}
 
       - name: Upload Exchange Asset Info
         uses: actions/upload-artifact@v4
@@ -176,18 +170,12 @@ jobs:
       exposed-path: ${{ steps.get-api-id.outputs.exposed-path }}
     
     steps:
-      - name: Checkout workflow reutilizável (scripts)
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository }}
-          path: .pipeline-scripts
-      
-      - name: Checkout repositório consumidor (configs)
+      - name: Checkout repositório consumidor
         uses: actions/checkout@v4
 
       - name: Setup ferramentas
         run: |
-          npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+          npm install -g anypoint-cli-v4
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
           sudo apt-get update && sudo apt-get install -y jq
@@ -203,19 +191,12 @@ jobs:
           name: exchange-info
           path: /tmp/
 
-      - name: Verificar API existente
-        run: |
-          bash .pipeline-scripts/scripts/check-api-exists.sh \
-            "${{ needs.validate.outputs.api-name }}" \
-            "${{ inputs.environment }}"
-
-      - name: Deploy API
-        run: |
-          bash .pipeline-scripts/scripts/deploy-api.sh \
-            "${{ needs.validate.outputs.api-name }}" \
-            "${{ needs.validate.outputs.api-version }}" \
-            "${{ inputs.environment }}" \
-            "$(cat /tmp/api-exists.txt 2>/dev/null || echo 'false')"
+      - name: Deploy API no API Manager
+        uses: ramondea-sf/mule-api-flex-gateway-reusable-workflows/.github/actions/deploy-api-manager@main
+        with:
+          api-name: ${{ needs.validate.outputs.api-name }}
+          api-version: ${{ needs.validate.outputs.api-version }}
+          environment: ${{ inputs.environment }}
 
       - name: Obter API ID
         id: get-api-id

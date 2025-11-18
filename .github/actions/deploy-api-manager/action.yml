@@ -1,0 +1,33 @@
+name: 'Deploy API Manager'
+description: 'Verifica e deploya API no API Manager'
+
+inputs:
+  api-name:
+    description: 'Nome da API'
+    required: true
+  api-version:
+    description: 'Versão da API'
+    required: true
+  environment:
+    description: 'Ambiente (dev, qas, prod)'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Verificar se API existe
+      shell: bash
+      run: |
+        bash ${{ github.action_path }}/../../scripts/check-api-exists.sh \
+          "${{ inputs.api-name }}" \
+          "${{ inputs.environment }}"
+    
+    - name: Deploy API
+      shell: bash
+      run: |
+        bash ${{ github.action_path }}/../../scripts/deploy-api.sh \
+          "${{ inputs.api-name }}" \
+          "${{ inputs.api-version }}" \
+          "${{ inputs.environment }}" \
+          "$(cat /tmp/api-exists.txt 2>/dev/null || echo 'false')"
+

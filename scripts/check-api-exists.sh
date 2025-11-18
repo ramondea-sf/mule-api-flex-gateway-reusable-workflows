@@ -15,11 +15,21 @@ echo "API: $API_NAME"
 echo "Ambiente: $ENVIRONMENT"
 echo ""
 
-# Ler configuração
+# Ler configurações
 CONFIG_FILE="api/api-config.yaml"
+ENV_FILE="api/${ENVIRONMENT}.yaml"
 
-ENV_ID=$(yq eval ".environments.$ENVIRONMENT.environmentId" $CONFIG_FILE)
-ORG_ID=$(yq eval ".environments.$ENVIRONMENT.organizationId" $CONFIG_FILE)
+# Verificar se arquivo de ambiente existe
+if [ ! -f "$ENV_FILE" ]; then
+    echo "❌ Erro: Arquivo de ambiente não encontrado: $ENV_FILE"
+    exit 1
+fi
+
+# Organization ID vem do config global
+ORG_ID=$(yq eval '.organizationId' $CONFIG_FILE)
+
+# Environment ID vem do arquivo de ambiente
+ENV_ID=$(yq eval ".environment.environmentId" $ENV_FILE)
 
 echo "🏢 Organização: $ORG_ID"
 echo "🌍 Environment ID: $ENV_ID"
@@ -33,20 +43,49 @@ API_LIST=$(anypoint-cli-v4 api-mgr api list \
     --environment "$ENV_ID" \
     --output json 2>/dev/null || echo "[]")
 
-# Verificar se a API existe (buscar por nome)
-API_ID=$(echo "$API_LIST" | jq -r ".[] | select(.name==\"$API_NAME\") | .id" | head -n 1)
+# Debug: mostrar lista de APIs (primeiras 500 chars)
+echo "DEBUG: Lista de APIs encontradas:"
+echo "$API_LIST" | head -c 500
+echo ""
+
+# Verificar se a API existe (buscar por instanceLabel que contém o nome e ambiente)
+INSTANCE_LABEL="${API_NAME}-${ENVIRONMENT}"
+
+# Tentar buscar pela instanceLabel primeiro
+API_ID=$(echo "$API_LIST" | jq -r ".assets[] | select(.instanceLabel==\"$INSTANCE_LABEL\") | .id" 2>/dev/null | head -n 1)
+
+# Se não encontrar, tentar buscar pelo nome da API
+if [ -z "$API_ID" ] || [ "$API_ID" == "null" ]; then
+    API_ID=$(echo "$API_LIST" | jq -r ".assets[] | select(.assetId==\"$API_NAME\") | .id" 2>/dev/null | head -n 1)
+fi
 
 if [ -z "$API_ID" ] || [ "$API_ID" == "null" ]; then
     echo "❌ API não encontrada no API Manager"
-    echo "api-exists=false" >> $GITHUB_OUTPUT
+    echo "ℹ️  Buscando por instanceLabel: $INSTANCE_LABEL ou assetId: $API_NAME"
+    
+    if [ -n "$GITHUB_OUTPUT" ]; then
+        echo "api-exists=false" >> $GITHUB_OUTPUT
+    fi
     echo "false" > /tmp/api-exists.txt
 else
     echo "✅ API encontrada no API Manager"
     echo "📋 API ID: $API_ID"
-    echo "api-exists=true" >> $GITHUB_OUTPUT
-    echo "api-id=$API_ID" >> $GITHUB_OUTPUT
+    
+    # Obter mais detalhes da API
+    API_DETAILS=$(echo "$API_LIST" | jq -r ".assets[] | select(.id==$API_ID)")
+    CURRENT_VERSION=$(echo "$API_DETAILS" | jq -r '.assetVersion // "unknown"')
+    
+    echo "📋 Versão atual: $CURRENT_VERSION"
+    
+    if [ -n "$GITHUB_OUTPUT" ]; then
+        echo "api-exists=true" >> $GITHUB_OUTPUT
+        echo "api-id=$API_ID" >> $GITHUB_OUTPUT
+        echo "current-version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+    fi
+    
     echo "true" > /tmp/api-exists.txt
     echo "$API_ID" > /tmp/api-id.txt
+    echo "$CURRENT_VERSION" > /tmp/current-api-version.txt
 fi
 
 echo ""

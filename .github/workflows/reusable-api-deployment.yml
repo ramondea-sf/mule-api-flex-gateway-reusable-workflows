@@ -1,11 +1,10 @@
 name: Reusable API Deployment
 
-# Este workflow pode ser reutilizado por outros repositórios
 on:
   workflow_call:
     inputs:
       environment:
-        description: 'Ambiente para deploy (dev, staging, prod)'
+        description: 'Ambiente para deploy (dev, qas, prod)'
         required: true
         type: string
       api-config-path:
@@ -121,36 +120,37 @@ jobs:
           fi
 
   # Carregar políticas obrigatórias (se configurado)
-  load-mandatory-policies:
-    name: Carregar Políticas Obrigatórias
-    runs-on: ubuntu-latest
-    needs: validate
-    if: needs.validate.outputs.should-deploy == 'true'
-    outputs:
-      has-mandatory-policies: ${{ steps.check-mandatory.outputs.has-policies }}
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Verificar políticas obrigatórias
-        id: check-mandatory
-        run: |
-          if [ -f "policies/mandatory-policies.yaml" ]; then
-            echo "has-policies=true" >> $GITHUB_OUTPUT
-            echo "✅ Políticas obrigatórias encontradas"
-          else
-            echo "has-policies=false" >> $GITHUB_OUTPUT
-            echo "ℹ️  Nenhuma política obrigatória configurada"
-          fi
-
-      - name: Upload políticas obrigatórias
-        if: steps.check-mandatory.outputs.has-policies == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: mandatory-policies
-          path: policies/mandatory-policies.yaml
-          retention-days: 1
+  # TEMPORARIAMENTE DESABILITADO - Focando apenas em Exchange e API Manager
+  # load-mandatory-policies:
+  #   name: Carregar Políticas Obrigatórias
+  #   runs-on: ubuntu-latest
+  #   needs: validate
+  #   if: needs.validate.outputs.should-deploy == 'true'
+  #   outputs:
+  #     has-mandatory-policies: ${{ steps.check-mandatory.outputs.has-policies }}
+  #   
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Verificar políticas obrigatórias
+  #       id: check-mandatory
+  #       run: |
+  #         if [ -f "policies/mandatory-policies.yaml" ]; then
+  #           echo "has-policies=true" >> $GITHUB_OUTPUT
+  #           echo "✅ Políticas obrigatórias encontradas"
+  #         else
+  #           echo "has-policies=false" >> $GITHUB_OUTPUT
+  #           echo "ℹ️  Nenhuma política obrigatória configurada"
+  #         fi
+  #
+  #     - name: Upload políticas obrigatórias
+  #       if: steps.check-mandatory.outputs.has-policies == 'true'
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: mandatory-policies
+  #         path: policies/mandatory-policies.yaml
+  #         retention-days: 1
 
   publish-to-exchange:
     name: Publicar no Exchange
@@ -182,11 +182,15 @@ jobs:
             "${{ needs.validate.outputs.api-version }}" \
             "${{ inputs.environment }}"
 
-      - name: Upload Exchange Asset ID
+      - name: Upload Exchange Asset Info
         uses: actions/upload-artifact@v4
         with:
-          name: exchange-asset-id
-          path: /tmp/exchange-asset-id.txt
+          name: exchange-info
+          path: |
+            /tmp/exchange-group-id.txt
+            /tmp/exchange-asset-id.txt
+            /tmp/exchange-version.txt
+            /tmp/version-to-deploy.txt
           retention-days: 1
 
   deploy-api:
@@ -213,10 +217,10 @@ jobs:
           anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
           anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
 
-      - name: Download Exchange Asset
+      - name: Download Exchange Asset Info
         uses: actions/download-artifact@v4
         with:
-          name: exchange-asset-id
+          name: exchange-info
           path: /tmp/
 
       - name: Verificar API existente
@@ -241,89 +245,86 @@ jobs:
           echo "api-id=$API_ID" >> $GITHUB_OUTPUT
           echo "exposed-path=$EXPOSED_PATH" >> $GITHUB_OUTPUT
 
-      - name: Upload API ID
+      - name: Upload API Info
         uses: actions/upload-artifact@v4
         with:
-          name: api-id
+          name: api-info
           path: |
             /tmp/api-id.txt
             /tmp/exposed-path.txt
+            /tmp/deployed-version.txt
           retention-days: 1
 
-  apply-policies:
-    name: Aplicar Políticas
-    runs-on: ubuntu-latest
-    needs: [validate, deploy-api, load-mandatory-policies]
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup ferramentas
-        run: |
-          npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-          sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Configurar credenciais
-        run: |
-          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
-          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
-
-      - name: Download API ID
-        uses: actions/download-artifact@v4
-        with:
-          name: api-id
-          path: /tmp/
-
-      - name: Download políticas obrigatórias
-        if: needs.load-mandatory-policies.outputs.has-mandatory-policies == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: mandatory-policies
-          path: /tmp/
-
-      - name: Aplicar políticas
-        run: |
-          bash scripts/apply-policies-safe.sh \
-            "${{ inputs.environment }}"
-
-  configure-alerts:
-    name: Configurar Alertas
-    runs-on: ubuntu-latest
-    needs: [validate, deploy-api]
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup ferramentas
-        run: |
-          npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-          sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Configurar credenciais
-        run: |
-          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
-          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
-
-      - name: Download API ID
-        uses: actions/download-artifact@v4
-        with:
-          name: api-id
-          path: /tmp/
-
-      - name: Configurar alertas
-        run: |
-          bash scripts/configure-alerts.sh "${{ inputs.environment }}"
+  # JOBS DE POLÍTICAS E ALERTAS TEMPORARIAMENTE DESABILITADOS
+  # Focando apenas em Exchange e API Manager no momento
+  
+  # apply-policies:
+  #   name: Aplicar Políticas
+  #   runs-on: ubuntu-latest
+  #   needs: [validate, deploy-api]
+  #   
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup ferramentas
+  #       run: |
+  #         npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+  #         sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+  #         sudo chmod +x /usr/local/bin/yq
+  #         sudo apt-get update && sudo apt-get install -y jq
+  #
+  #     - name: Configurar credenciais
+  #       run: |
+  #         anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
+  #         anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+  #
+  #     - name: Download API ID
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: api-info
+  #         path: /tmp/
+  #
+  #     - name: Aplicar políticas
+  #       run: |
+  #         bash scripts/apply-policies-safe.sh \
+  #           "${{ inputs.environment }}"
+  #
+  # configure-alerts:
+  #   name: Configurar Alertas
+  #   runs-on: ubuntu-latest
+  #   needs: [validate, deploy-api]
+  #   
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Setup ferramentas
+  #       run: |
+  #         npm install -g @mulesoft/anypoint-cli-v4@${{ env.ANYPOINT_CLI_VERSION }}
+  #         sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+  #         sudo chmod +x /usr/local/bin/yq
+  #         sudo apt-get update && sudo apt-get install -y jq
+  #
+  #     - name: Configurar credenciais
+  #       run: |
+  #         anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
+  #         anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+  #
+  #     - name: Download API ID
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: api-info
+  #         path: /tmp/
+  #
+  #     - name: Configurar alertas
+  #       run: |
+  #         bash scripts/configure-alerts.sh "${{ inputs.environment }}"
 
   notify:
     name: Notificar Resultado
     runs-on: ubuntu-latest
-    needs: [validate, deploy-api, apply-policies, configure-alerts]
+    needs: [validate, deploy-api]
     if: always()
     
     steps:
@@ -335,4 +336,7 @@ jobs:
           echo "**Versão:** ${{ needs.validate.outputs.api-version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Ambiente:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "**Status:** ${{ needs.deploy-api.result == 'success' && '✅ Sucesso' || '❌ Falha' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Path exposto:** ${{ needs.deploy-api.outputs.exposed-path }}" >> $GITHUB_STEP_SUMMARY
+          echo "**API ID:** ${{ needs.deploy-api.outputs.api-id }}" >> $GITHUB_STEP_SUMMARY
 

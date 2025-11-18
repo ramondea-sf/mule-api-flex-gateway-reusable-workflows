@@ -133,7 +133,7 @@ jobs:
       - name: Checkout repositório de scripts
         uses: actions/checkout@v4
         with:
-          repository: ${{ github.repository_owner }}/mule-api-flex-gateway-reusable-workflows
+          repository: ramondea-sf/mule-api-flex-gateway-reusable-workflows
           path: .pipeline-scripts
           ref: main
 

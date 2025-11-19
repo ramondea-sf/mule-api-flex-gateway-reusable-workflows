@@ -62,14 +62,44 @@ fi
 
 echo "📋 Tipo de especificação: $SPEC_TYPE"
 
+# ============================================================================
+# DEBUG: Mostrar todas as variáveis carregadas
+# ============================================================================
+echo ""
+echo "=================================================="
+echo "🔍 DEBUG - Variáveis de Configuração"
+echo "=================================================="
+echo "📁 Arquivos de configuração:"
+echo "   CONFIG_FILE: $CONFIG_FILE"
+echo "   ENV_FILE: $ENV_FILE"
+echo ""
+echo "📦 Informações da API:"
+echo "   API_NAME: $API_NAME"
+echo "   API_VERSION (version.current): $API_VERSION"
+echo "   DEPLOYED_VERSION: $DEPLOYED_VERSION"
+echo "   SWAGGER_PATH: $SWAGGER_PATH"
+echo "   SPEC_TYPE: $SPEC_TYPE"
+echo "   DESCRIPTION: $DESCRIPTION"
+echo "   PROJECT_ACRONYM: $PROJECT_ACRONYM"
+echo ""
+echo "🏢 Anypoint Platform:"
+echo "   ORG_ID: $ORG_ID"
+echo "   ENVIRONMENT: $ENVIRONMENT"
+echo ""
+echo "🔑 Exchange Asset ID que será criado:"
+echo "   GROUP_ID: $ORG_ID"
+echo "   ASSET_ID: $API_NAME"
+echo "   VERSION: $DEPLOYED_VERSION"
+echo "=================================================="
+echo ""
+
 # Validar se o arquivo swagger existe
 if [ ! -f "$SWAGGER_PATH" ]; then
     echo "❌ Erro: Arquivo Swagger não encontrado: $SWAGGER_PATH"
     exit 1
 fi
 
-echo "📄 Arquivo Swagger: $SWAGGER_PATH"
-echo "🏢 Organização: $ORG_ID"
+echo "✅ Arquivo Swagger encontrado: $SWAGGER_PATH"
 echo ""
 
 # Verificar se a versão já existe no Exchange

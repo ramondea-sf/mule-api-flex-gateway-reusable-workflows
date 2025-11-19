@@ -35,6 +35,27 @@ echo "🏢 Organização: $ORG_ID"
 echo "🌍 Environment ID: $ENV_ID"
 echo ""
 
+# ============================================================================
+# DEBUG: Mostrar todas as variáveis
+# ============================================================================
+echo "=================================================="
+echo "🔍 DEBUG - Parâmetros de Verificação"
+echo "=================================================="
+echo "📁 Arquivos de configuração:"
+echo "   CONFIG_FILE: $CONFIG_FILE"
+echo "   ENV_FILE: $ENV_FILE"
+echo ""
+echo "🔍 Busca:"
+echo "   API_NAME: $API_NAME"
+echo "   ENVIRONMENT: $ENVIRONMENT"
+echo "   INSTANCE_LABEL: ${API_NAME}-${ENVIRONMENT}"
+echo ""
+echo "🏢 Anypoint Platform:"
+echo "   ORG_ID: $ORG_ID"
+echo "   ENV_ID: $ENV_ID"
+echo "=================================================="
+echo ""
+
 # Listar todas as APIs no API Manager
 echo "📋 Listando APIs no API Manager..."
 

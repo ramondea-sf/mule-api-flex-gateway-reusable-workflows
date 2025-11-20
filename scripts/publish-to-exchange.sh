@@ -106,21 +106,33 @@ echo "🔍 Verificando se versão $API_VERSION já existe no Exchange..."
 GROUP_ID=$ORG_ID
 ASSET_ID=$API_NAME
 
+# Montar o asset coordinate: groupId:assetId:version
+ASSET_COORDINATE="$GROUP_ID:$ASSET_ID:$API_VERSION"
+
+echo "🔍 Buscando asset: $ASSET_COORDINATE"
+echo ""
+
 # Tentar descrever o asset específico
-VERSION_EXISTS=$(anypoint-cli-v4 exchange asset describe \
+# Sintaxe: anypoint-cli-v4 exchange asset describe <groupId>:<assetId>:<version>
+VERSION_CHECK=$(anypoint-cli-v4 exchange asset describe "$ASSET_COORDINATE" \
     --client_id "$ANYPOINT_CLIENT_ID" \
     --client_secret "$ANYPOINT_CLIENT_SECRET" \
-    --organization "$GROUP_ID" \
-    --groupId "$GROUP_ID" \
-    --assetId "$ASSET_ID" \
-    --version "$API_VERSION" \
-    --output json 2>/dev/null || echo "")
+    --output json 2>&1)
 
-if [ -n "$VERSION_EXISTS" ] && [ "$VERSION_EXISTS" != "null" ]; then
+CHECK_STATUS=$?
+
+echo "📋 DEBUG - Saída do comando:"
+echo "$VERSION_CHECK"
+echo ""
+echo "📋 DEBUG - Exit code: $CHECK_STATUS"
+echo ""
+
+# Se exit code = 0, o asset existe
+if [ $CHECK_STATUS -eq 0 ]; then
     echo "⚠️  Versão $API_VERSION já existe no Exchange"
     echo "ℹ️  Pulando publicação (versões no Exchange são imutáveis)"
     echo ""
-    echo "✅ Usando asset existente: $GROUP_ID:$ASSET_ID:$API_VERSION"
+    echo "✅ Usando asset existente: $ASSET_COORDINATE"
     
     # Salvar informações para próximos jobs
     echo "$GROUP_ID" > /tmp/exchange-group-id.txt
@@ -137,7 +149,9 @@ if [ -n "$VERSION_EXISTS" ] && [ "$VERSION_EXISTS" != "null" ]; then
     exit 0
 fi
 
-echo "✅ Versão $API_VERSION não existe, publicando nova versão..."
+# Se chegou aqui, o asset não existe (exit code != 0)
+echo "✅ Versão $API_VERSION não existe no Exchange"
+echo "📤 Preparando publicação..."
 
 # Determinar o formato do arquivo (json ou yaml)
 FILE_EXTENSION="${SWAGGER_PATH##*.}"
@@ -183,20 +197,25 @@ echo "📤 Publicando no Exchange..."
 cd "$TEMP_DIR"
 
 # Upload do asset usando Anypoint CLI v4
-anypoint-cli-v4 exchange:asset:upload \
-    "$GROUP_ID/$ASSET_ID/$API_VERSION" \
+# Sintaxe: anypoint-cli-v4 exchange asset upload <groupId>:<assetId>:<version>
+echo "🔨 Executando comando de upload..."
+anypoint-cli-v4 exchange asset upload "$ASSET_COORDINATE" \
     --client_id "$ANYPOINT_CLIENT_ID" \
     --client_secret "$ANYPOINT_CLIENT_SECRET" \
     --name "$API_NAME" \
     --description "$DESCRIPTION" \
     --type "rest-api" \
-    --properties="$MAIN_FILE_REQUEST" \
-    --files="$FILE_REQUEST" \
-    --tags="$TAGS"
+    --properties "$MAIN_FILE_REQUEST" \
+    --files "$FILE_REQUEST" \
+    --tags "$TAGS"
 
 UPLOAD_STATUS=$?
 
 cd - > /dev/null
+
+echo ""
+echo "📋 DEBUG - Upload status: $UPLOAD_STATUS"
+echo ""
 
 # Limpar diretório temporário
 rm -rf "$TEMP_DIR"
@@ -204,11 +223,11 @@ rm -rf "$TEMP_DIR"
 if [ $UPLOAD_STATUS -eq 0 ]; then
     echo "✅ API publicada com sucesso no Exchange!"
     echo ""
-    echo "📋 Detalhes:"
+    echo "📋 Detalhes da publicação:"
     echo "   Group ID: $GROUP_ID"
     echo "   Asset ID: $ASSET_ID"
-    echo "   Versão publicada: $API_VERSION"
-    echo "   Versão para deploy: $DEPLOYED_VERSION"
+    echo "   Versão publicada no Exchange: $API_VERSION"
+    echo "   Versão que será deployada no Gateway: $DEPLOYED_VERSION"
     
     # Salvar informações para uso posterior
     echo "$GROUP_ID" > /tmp/exchange-group-id.txt

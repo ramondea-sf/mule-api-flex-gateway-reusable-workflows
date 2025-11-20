@@ -29,13 +29,6 @@ outputs:
 runs:
   using: 'composite'
   steps:
-    - name: Checkout repositório de workflows (para ler gateway-config.yaml)
-      uses: actions/checkout@v4
-      with:
-        repository: ramondea-sf/mule-api-flex-gateway-reusable-workflows
-        ref: main
-        path: .workflows-repo
-    
     - name: Get Gateway Configuration
       id: get-config
       shell: bash
@@ -72,18 +65,120 @@ runs:
         echo "🏷️  Label: $GATEWAY_LABEL"
         echo ""
         
-        # Ler configuração do gateway-config.yaml (do repositório de workflows)
-        CONFIG_FILE=".workflows-repo/gateway-config.yaml"
+        # ============================================================================
+        # MAPEAMENTO DE GATEWAYS
+        # ============================================================================
+        # Configure os IDs e versões dos gateways aqui
+        # Formato: GATEWAY_{AMBIENTE}_{CLUSTER}_{TIPO}_ID e _VERSION
         
-        if [ ! -f "$CONFIG_FILE" ]; then
-          echo "❌ Erro: Arquivo gateway-config.yaml não encontrado"
-          echo "   Certifique-se de que o arquivo existe na raiz do repositório"
-          exit 1
-        fi
+        # Função para buscar configuração do gateway
+        get_gateway_config() {
+          local env=$1
+          local cluster=$2
+          local type=$3
+          
+          # Converter para uppercase para construir nome da variável
+          ENV_UPPER=$(echo "$env" | tr '[:lower:]' '[:upper:]')
+          CLUSTER_UPPER=$(echo "$cluster" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
+          TYPE_UPPER=$(echo "$type" | tr '[:lower:]' '[:upper:]')
+          
+          # Construir nome da variável: GATEWAY_DEV_AWS_ROSA_BACK_ID
+          VAR_NAME_ID="GATEWAY_${ENV_UPPER}_${CLUSTER_UPPER}_${TYPE_UPPER}_ID"
+          VAR_NAME_VERSION="GATEWAY_${ENV_UPPER}_${CLUSTER_UPPER}_${TYPE_UPPER}_VERSION"
+          
+          # Valores padrão (SUBSTITUA PELOS SEUS IDs REAIS)
+          case "$env|$cluster|$type" in
+            # DEV
+            "dev|aws-rosa|back")
+              GATEWAY_ID="07755ead-e67e-49a0-a174-953bd0b3a05d"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "dev|aws-rosa|dmz")
+              GATEWAY_ID="GATEWAY_ID_AWS_ROSA_DMZ_DEV"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "dev|on-premise|back")
+              GATEWAY_ID="GATEWAY_ID_ONPREM_BACK_DEV"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "dev|on-premise|dmz")
+              GATEWAY_ID="GATEWAY_ID_ONPREM_DMZ_DEV"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "dev|pix|back")
+              GATEWAY_ID="GATEWAY_ID_PIX_BACK_DEV"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "dev|pj|back")
+              GATEWAY_ID="GATEWAY_ID_PJ_BACK_DEV"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            
+            # QAS
+            "qas|aws-rosa|back")
+              GATEWAY_ID="GATEWAY_ID_AWS_ROSA_BACK_QAS"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "qas|aws-rosa|dmz")
+              GATEWAY_ID="GATEWAY_ID_AWS_ROSA_DMZ_QAS"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "qas|on-premise|back")
+              GATEWAY_ID="GATEWAY_ID_ONPREM_BACK_QAS"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "qas|on-premise|dmz")
+              GATEWAY_ID="GATEWAY_ID_ONPREM_DMZ_QAS"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "qas|pix|back")
+              GATEWAY_ID="GATEWAY_ID_PIX_BACK_QAS"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "qas|pj|back")
+              GATEWAY_ID="GATEWAY_ID_PJ_BACK_QAS"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            
+            # PROD
+            "prod|aws-rosa|back")
+              GATEWAY_ID="GATEWAY_ID_AWS_ROSA_BACK_PROD"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "prod|aws-rosa|dmz")
+              GATEWAY_ID="GATEWAY_ID_AWS_ROSA_DMZ_PROD"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "prod|on-premise|back")
+              GATEWAY_ID="GATEWAY_ID_ONPREM_BACK_PROD"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "prod|on-premise|dmz")
+              GATEWAY_ID="GATEWAY_ID_ONPREM_DMZ_PROD"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "prod|pix|back")
+              GATEWAY_ID="GATEWAY_ID_PIX_BACK_PROD"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            "prod|pj|back")
+              GATEWAY_ID="GATEWAY_ID_PJ_BACK_PROD"
+              GATEWAY_VERSION="1.11.0"
+              ;;
+            
+            *)
+              echo "❌ Erro: Configuração não encontrada para: $env|$cluster|$type"
+              exit 1
+              ;;
+          esac
+          
+          echo "$GATEWAY_ID|$GATEWAY_VERSION"
+        }
         
-        # Extrair ID e versão do gateway
-        GATEWAY_ID=$(yq eval ".gateways.$ENVIRONMENT.$CLUSTER.$GATEWAY_TYPE.id" "$CONFIG_FILE")
-        GATEWAY_VERSION=$(yq eval ".gateways.$ENVIRONMENT.$CLUSTER.$GATEWAY_TYPE.version" "$CONFIG_FILE")
+        # Obter configuração
+        CONFIG=$(get_gateway_config "$ENVIRONMENT" "$CLUSTER" "$GATEWAY_TYPE")
+        GATEWAY_ID=$(echo "$CONFIG" | cut -d'|' -f1)
+        GATEWAY_VERSION=$(echo "$CONFIG" | cut -d'|' -f2)
         
         # Validar se os valores foram encontrados
         if [ -z "$GATEWAY_ID" ] || [ "$GATEWAY_ID" == "null" ]; then
@@ -91,8 +186,6 @@ runs:
           echo "   Ambiente: $ENVIRONMENT"
           echo "   Cluster: $CLUSTER"
           echo "   Tipo: $GATEWAY_TYPE"
-          echo ""
-          echo "   Verifique o arquivo gateway-config.yaml"
           exit 1
         fi
         
@@ -101,8 +194,6 @@ runs:
           echo "   Ambiente: $ENVIRONMENT"
           echo "   Cluster: $CLUSTER"
           echo "   Tipo: $GATEWAY_TYPE"
-          echo ""
-          echo "   Verifique o arquivo gateway-config.yaml"
           exit 1
         fi
         

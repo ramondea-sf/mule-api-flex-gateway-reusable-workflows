@@ -107,7 +107,7 @@ GROUP_ID=$ORG_ID
 ASSET_ID=$API_NAME
 
 # Montar o asset coordinate: groupId:assetId:version
-ASSET_COORDINATE="$GROUP_ID:$ASSET_ID:$API_VERSION"
+ASSET_COORDINATE="$GROUP_ID/$ASSET_ID/$API_VERSION"
 
 echo "🔍 Buscando asset: $ASSET_COORDINATE"
 echo ""

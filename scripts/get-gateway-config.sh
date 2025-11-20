@@ -77,7 +77,7 @@ echo "🔍 Passo 2: Construindo nome do gateway..."
 # Formato: hub-{cluster}-{tipo}-{ambiente-suffix}
 case "$ENVIRONMENT|$CLUSTER|$GATEWAY_TYPE" in
   "dev|aws-rosa|back")
-    GATEWAY_NAME="hub-aws-back-d"
+    GATEWAY_NAME="flex-demo"
     ;;
   "dev|aws-rosa|dmz")
     GATEWAY_NAME="hub-aws-front-d"

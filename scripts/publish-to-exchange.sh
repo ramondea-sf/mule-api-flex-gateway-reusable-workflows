@@ -44,6 +44,10 @@ PROJECT_ACRONYM=$(yq eval '.api.projectAcronym' $CONFIG_FILE)
 SPEC_TYPE=$(yq eval '.api.specType' $CONFIG_FILE)
 ORG_ID=$(yq eval '.organizationId' $CONFIG_FILE)
 
+# Extrair tags e converter para formato separado por vírgula
+TAGS_ARRAY=$(yq eval '.api.tags[]' $CONFIG_FILE)
+TAGS=$(echo "$TAGS_ARRAY" | tr '\n' ',' | sed 's/,$//')  # Remove última vírgula
+
 # Verificar qual versão será deployada no Gateway (lê do arquivo de ambiente)
 DEPLOYED_VERSION=$(yq eval ".environment.deployedVersion" $ENV_FILE)
 
@@ -81,6 +85,7 @@ echo "   SWAGGER_PATH: $SWAGGER_PATH"
 echo "   SPEC_TYPE: $SPEC_TYPE"
 echo "   DESCRIPTION: $DESCRIPTION"
 echo "   PROJECT_ACRONYM: $PROJECT_ACRONYM"
+echo "   TAGS: $TAGS"
 echo ""
 echo "🏢 Anypoint Platform:"
 echo "   ORG_ID: $ORG_ID"
@@ -139,47 +144,58 @@ fi
 
 echo "✅ Versão $API_VERSION não existe, publicando nova versão..."
 
+# Determinar o formato do arquivo (json ou yaml)
+FILE_EXTENSION="${SWAGGER_PATH##*.}"
+if [ "$FILE_EXTENSION" = "json" ]; then
+    FILE_NAME="swagger.json"
+    CLASSIFIER="$SPEC_TYPE.json"
+else
+    FILE_NAME="swagger.yaml"
+    CLASSIFIER="$SPEC_TYPE.yaml"
+fi
+
+echo "📝 Formato detectado: $FILE_EXTENSION"
+echo "📝 Classifier: $CLASSIFIER"
+
 # Criar diretório temporário para preparar o asset
 TEMP_DIR=$(mktemp -d)
 echo "📁 Diretório temporário: $TEMP_DIR"
 
-# Copiar arquivo Swagger
-cp "$SWAGGER_PATH" "$TEMP_DIR/api.yaml"
+# Copiar arquivo Swagger com o nome correto
+cp "$SWAGGER_PATH" "$TEMP_DIR/$FILE_NAME"
 
-# Criar exchange.json com metadados
-cat > "$TEMP_DIR/exchange.json" <<EOF
-{
-  "name": "$API_NAME",
-  "description": "$DESCRIPTION",
-  "tags": ["rest-api", "flex-gateway", "$PROJECT_ACRONYM"],
-  "properties": {
-    "apiVersion": "v1",
-    "mainFile": "api.yaml"
-  }
-}
-EOF
+# Construir parâmetros para o comando
+FILE_REQUEST="{\"$CLASSIFIER\": \"./$FILE_NAME\"}"
+MAIN_FILE_REQUEST="{\"apiVersion\":\"v1\", \"mainFile\":\"$FILE_NAME\"}"
 
-echo "📝 Metadados do Exchange criados"
+echo ""
+echo "=================================================="
+echo "🔍 Parâmetros do Exchange Upload"
+echo "=================================================="
+echo "Asset Coordinate: $GROUP_ID/$ASSET_ID/$API_VERSION"
+echo "Name: $API_NAME"
+echo "Description: $DESCRIPTION"
+echo "Type: rest-api"
+echo "Tags: $TAGS"
+echo "Properties: $MAIN_FILE_REQUEST"
+echo "Files: $FILE_REQUEST"
+echo "=================================================="
+echo ""
 
 # Publicar no Exchange
-echo ""
 echo "📤 Publicando no Exchange..."
 
 cd "$TEMP_DIR"
 
 # Upload do asset usando Anypoint CLI v4
-# Nota: O comando upload cria uma nova versão ou sobrescreve se permitido
-anypoint-cli-v4 exchange asset upload \
-    --organization "$GROUP_ID" \
-    --groupId "$GROUP_ID" \
-    --assetId "$ASSET_ID" \
-    --version "$API_VERSION" \
+anypoint-cli-v4 exchange:asset:upload \
+    "$GROUP_ID/$ASSET_ID/$API_VERSION" \
     --name "$API_NAME" \
+    --description "$DESCRIPTION" \
     --type "rest-api" \
-    --classifier "$SPEC_TYPE" \
-    --apiVersion "v1" \
-    --files api.yaml \
-    --properties exchange.json
+    --properties="$MAIN_FILE_REQUEST" \
+    --files="$FILE_REQUEST" \
+    --tags="$TAGS"
 
 UPLOAD_STATUS=$?
 

@@ -175,6 +175,8 @@ if [ "$API_EXISTS" == "true" ] && [ -f "/tmp/api-id.txt" ]; then
         # Deletar API antiga
         echo "🗑️  Removendo API antiga..."
         anypoint-cli-v4 api-mgr api delete \
+            --client_id "$ANYPOINT_CLIENT_ID" \
+            --client_secret "$ANYPOINT_CLIENT_SECRET" \
             --organization "$ORG_ID" \
             --environment "$ENV_ID" \
             --apiId "$API_ID" || true
@@ -204,6 +206,8 @@ if [ "$API_EXISTS" != "true" ]; then
     
     # Criar a API usando a sintaxe correta do anypoint-cli-v4
     RESULT=$(anypoint-cli-v4 api-mgr api manage \
+        --client_id "$ANYPOINT_CLIENT_ID" \
+        --client_secret "$ANYPOINT_CLIENT_SECRET" \
         --organization "$ORG_ID" \
         --environment "$ENV_ID" \
         --type "rest-api" \
@@ -236,6 +240,8 @@ if [ "$API_EXISTS" != "true" ]; then
         sleep 3
         
         API_LIST=$(anypoint-cli-v4 api-mgr api list \
+            --client_id "$ANYPOINT_CLIENT_ID" \
+            --client_secret "$ANYPOINT_CLIENT_SECRET" \
             --organization "$ORG_ID" \
             --environment "$ENV_ID" \
             --output json 2>/dev/null || echo "[]")

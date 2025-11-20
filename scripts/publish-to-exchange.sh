@@ -20,13 +20,6 @@ echo "Versão a publicar: $API_VERSION"
 echo "Ambiente: $ENVIRONMENT"
 echo ""
 
-# Instalar yq se não estiver disponível
-if ! command -v yq &> /dev/null; then
-    echo "Instalando yq..."
-    sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-    sudo chmod +x /usr/local/bin/yq
-fi
-
 # Ler configurações globais
 CONFIG_FILE="api/api-config.yaml"
 ENV_FILE="api/${ENVIRONMENT}.yaml"
@@ -115,6 +108,8 @@ ASSET_ID=$API_NAME
 
 # Tentar descrever o asset específico
 VERSION_EXISTS=$(anypoint-cli-v4 exchange asset describe \
+    --client_id "$ANYPOINT_CLIENT_ID" \
+    --client_secret "$ANYPOINT_CLIENT_SECRET" \
     --organization "$GROUP_ID" \
     --groupId "$GROUP_ID" \
     --assetId "$ASSET_ID" \
@@ -190,6 +185,8 @@ cd "$TEMP_DIR"
 # Upload do asset usando Anypoint CLI v4
 anypoint-cli-v4 exchange:asset:upload \
     "$GROUP_ID/$ASSET_ID/$API_VERSION" \
+    --client_id "$ANYPOINT_CLIENT_ID" \
+    --client_secret "$ANYPOINT_CLIENT_SECRET" \
     --name "$API_NAME" \
     --description "$DESCRIPTION" \
     --type "rest-api" \

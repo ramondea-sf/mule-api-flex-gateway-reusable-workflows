@@ -11,12 +11,29 @@ inputs:
   environment:
     description: 'Ambiente (dev, qas, prod)'
     required: true
+  client-id:
+    description: 'Anypoint Client ID'
+    required: true
+  client-secret:
+    description: 'Anypoint Client Secret'
+    required: true
 
 runs:
   using: 'composite'
   steps:
+    - name: Instalar yq
+      shell: bash
+      run: |
+        if ! command -v yq &> /dev/null; then
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+        fi
+    
     - name: Executar script de publicação
       shell: bash
+      env:
+        ANYPOINT_CLIENT_ID: ${{ inputs.client-id }}
+        ANYPOINT_CLIENT_SECRET: ${{ inputs.client-secret }}
       run: |
         bash ${{ github.action_path }}/../../../scripts/publish-to-exchange.sh \
           "${{ inputs.api-name }}" \

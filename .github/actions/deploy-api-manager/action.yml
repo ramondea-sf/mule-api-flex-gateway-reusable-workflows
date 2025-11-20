@@ -11,12 +11,32 @@ inputs:
   environment:
     description: 'Ambiente (dev, qas, prod)'
     required: true
+  client-id:
+    description: 'Anypoint Client ID'
+    required: true
+  client-secret:
+    description: 'Anypoint Client Secret'
+    required: true
 
 runs:
   using: 'composite'
   steps:
+    - name: Instalar yq e jq
+      shell: bash
+      run: |
+        if ! command -v yq &> /dev/null; then
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+        fi
+        if ! command -v jq &> /dev/null; then
+          sudo apt-get update && sudo apt-get install -y jq
+        fi
+    
     - name: Verificar se API existe
       shell: bash
+      env:
+        ANYPOINT_CLIENT_ID: ${{ inputs.client-id }}
+        ANYPOINT_CLIENT_SECRET: ${{ inputs.client-secret }}
       run: |
         bash ${{ github.action_path }}/../../../scripts/check-api-exists.sh \
           "${{ inputs.api-name }}" \
@@ -24,6 +44,9 @@ runs:
     
     - name: Deploy API
       shell: bash
+      env:
+        ANYPOINT_CLIENT_ID: ${{ inputs.client-id }}
+        ANYPOINT_CLIENT_SECRET: ${{ inputs.client-secret }}
       run: |
         bash ${{ github.action_path }}/../../../scripts/deploy-api.sh \
           "${{ inputs.api-name }}" \

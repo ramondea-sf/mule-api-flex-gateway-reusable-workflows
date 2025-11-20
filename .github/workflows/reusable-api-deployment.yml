@@ -23,7 +23,6 @@ on:
         type: boolean
         default: false
     secrets:
-      # Secrets da ORGANIZAÇÃO (configurados 1x, compartilhados)
       ANYPOINT_CLIENT_ID:
         required: true
       ANYPOINT_CLIENT_SECRET:
@@ -138,17 +137,14 @@ jobs:
       - name: Instalar Anypoint CLI
         run: npm install -g anypoint-cli-v4
 
-      - name: Configurar credenciais
-        run: |
-          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
-          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
-
       - name: Publicar no Exchange
         uses: ramondea-sf/mule-api-flex-gateway-reusable-workflows/.github/actions/publish-exchange@main
         with:
           api-name: ${{ needs.validate.outputs.api-name }}
           api-version: ${{ needs.validate.outputs.api-version }}
           environment: ${{ inputs.environment }}
+          client-id: ${{ secrets.ANYPOINT_CLIENT_ID }}
+          client-secret: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
 
       - name: Upload Exchange Asset Info
         uses: actions/upload-artifact@v4
@@ -180,11 +176,6 @@ jobs:
           sudo chmod +x /usr/local/bin/yq
           sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Configurar credenciais
-        run: |
-          anypoint-cli-v4 conf client-id ${{ secrets.ANYPOINT_CLIENT_ID }}
-          anypoint-cli-v4 conf client-secret ${{ secrets.ANYPOINT_CLIENT_SECRET }}
-
       - name: Download Exchange Asset Info
         uses: actions/download-artifact@v4
         with:
@@ -197,6 +188,8 @@ jobs:
           api-name: ${{ needs.validate.outputs.api-name }}
           api-version: ${{ needs.validate.outputs.api-version }}
           environment: ${{ inputs.environment }}
+          client-id: ${{ secrets.ANYPOINT_CLIENT_ID }}
+          client-secret: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
 
       - name: Obter API ID
         id: get-api-id

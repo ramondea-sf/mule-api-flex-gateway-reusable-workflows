@@ -60,6 +60,8 @@ echo ""
 echo "📋 Listando APIs no API Manager..."
 
 API_LIST=$(anypoint-cli-v4 api-mgr api list \
+    --client_id "$ANYPOINT_CLIENT_ID" \
+    --client_secret "$ANYPOINT_CLIENT_SECRET" \
     --organization "$ORG_ID" \
     --environment "$ENV_ID" \
     --output json 2>/dev/null || echo "[]")

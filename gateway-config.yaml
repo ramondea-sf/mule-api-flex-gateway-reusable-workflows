@@ -23,7 +23,7 @@ gateways:
     # Cluster AWS ROSA
     aws-rosa:
       back:
-        id: "GATEWAY_ID_AWS_ROSA_BACK_DEV"
+        id: "07755ead-e67e-49a0-a174-953bd0b3a05d"
         version: "1.11.0"
       dmz:
         id: "GATEWAY_ID_AWS_ROSA_DMZ_DEV"

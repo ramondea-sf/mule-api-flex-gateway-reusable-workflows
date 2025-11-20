@@ -29,6 +29,13 @@ outputs:
 runs:
   using: 'composite'
   steps:
+    - name: Checkout repositório de workflows (para ler gateway-config.yaml)
+      uses: actions/checkout@v4
+      with:
+        repository: ramondea-sf/mule-api-flex-gateway-reusable-workflows
+        ref: main
+        path: .workflows-repo
+    
     - name: Get Gateway Configuration
       id: get-config
       shell: bash
@@ -65,8 +72,8 @@ runs:
         echo "🏷️  Label: $GATEWAY_LABEL"
         echo ""
         
-        # Ler configuração do gateway-config.yaml
-        CONFIG_FILE="gateway-config.yaml"
+        # Ler configuração do gateway-config.yaml (do repositório de workflows)
+        CONFIG_FILE=".workflows-repo/gateway-config.yaml"
         
         if [ ! -f "$CONFIG_FILE" ]; then
           echo "❌ Erro: Arquivo gateway-config.yaml não encontrado"

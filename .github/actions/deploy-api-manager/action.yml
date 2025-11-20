@@ -53,6 +53,14 @@ runs:
         echo "   Cluster: $DESTINATION_CLUSTER"
         echo "   Público: $IS_PUBLIC"
     
+    - name: Ler Organization ID
+      id: read-org-id
+      shell: bash
+      run: |
+        ORG_ID=$(yq eval '.organizationId' "api/api-config.yaml")
+        echo "organization-id=$ORG_ID" >> $GITHUB_OUTPUT
+        echo "📋 Organization ID: $ORG_ID"
+    
     - name: Obter configuração do Gateway
       id: get-gateway
       uses: ramondea-sf/mule-api-flex-gateway-reusable-workflows/.github/actions/get-gateway-config@main
@@ -60,6 +68,9 @@ runs:
         environment: ${{ inputs.environment }}
         destination-cluster: ${{ steps.read-api-config.outputs.destination-cluster }}
         is-public: ${{ steps.read-api-config.outputs.is-public }}
+        client-id: ${{ inputs.client-id }}
+        client-secret: ${{ inputs.client-secret }}
+        organization-id: ${{ steps.read-org-id.outputs.organization-id }}
     
     - name: Deploy API no Flex Gateway
       shell: bash

@@ -104,6 +104,48 @@ jobs:
           
           echo "✅ Configuração válida: $API_NAME v$API_VERSION"
 
+      - name: Validar combinação cluster + isPublic
+        run: |
+          CONFIG_FILE="${{ inputs.api-config-path }}"
+          
+          CLUSTER=$(yq eval '.api.destinationCluster' $CONFIG_FILE)
+          IS_PUBLIC=$(yq eval '.api.isPublic' $CONFIG_FILE)
+          
+          echo "=================================================="
+          echo "🔍 Validando configuração de deploy"
+          echo "=================================================="
+          echo "Cluster: $CLUSTER"
+          echo "API Pública: $IS_PUBLIC"
+          echo ""
+          
+          # Validar se PIX/PJ tentam usar DMZ público
+          if [[ ("$CLUSTER" == "pix" || "$CLUSTER" == "pj") && "$IS_PUBLIC" == "true" ]]; then
+            echo "❌ ERRO: Configuração inválida!"
+            echo ""
+            echo "   Cluster '$CLUSTER' não suporta isPublic: true"
+            echo "   Clusters PIX e PJ não possuem gateway DMZ público"
+            echo ""
+            echo "💡 Soluções:"
+            echo "   1. Altere 'isPublic: false' no api-config.yaml, OU"
+            echo "   2. Escolha 'destinationCluster: aws-rosa' ou 'on-premise'"
+            echo ""
+            exit 1
+          fi
+          
+          # Validar se cluster é válido
+          if [[ "$CLUSTER" != "aws-rosa" && "$CLUSTER" != "on-premise" && "$CLUSTER" != "pix" && "$CLUSTER" != "pj" ]]; then
+            echo "❌ ERRO: Cluster inválido: '$CLUSTER'"
+            echo ""
+            echo "💡 Valores válidos: aws-rosa, on-premise, pix, pj"
+            echo ""
+            exit 1
+          fi
+          
+          echo "✅ Configuração de deploy válida!"
+          echo "   Cluster: $CLUSTER"
+          echo "   Tipo: $([ "$IS_PUBLIC" == "true" ] && echo "DMZ (público)" || echo "BACK (privado)")"
+          echo "=================================================="
+
       - name: Verificar mudanças
         id: check-changes
         run: |

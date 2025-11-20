@@ -1,5 +1,5 @@
 name: 'Deploy API Manager'
-description: 'Verifica e deploya API no API Manager'
+description: 'Verifica e deploya API no API Manager e Flex Gateway'
 
 inputs:
   api-name:
@@ -32,17 +32,36 @@ runs:
           sudo apt-get update && sudo apt-get install -y jq
         fi
     
-    - name: Verificar se API existe
+    - name: Ler configurações da API
+      id: read-api-config
       shell: bash
-      env:
-        ANYPOINT_CLIENT_ID: ${{ inputs.client-id }}
-        ANYPOINT_CLIENT_SECRET: ${{ inputs.client-secret }}
       run: |
-        bash ${{ github.action_path }}/../../../scripts/check-api-exists.sh \
-          "${{ inputs.api-name }}" \
-          "${{ inputs.environment }}"
+        CONFIG_FILE="api/api-config.yaml"
+        
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "❌ Arquivo $CONFIG_FILE não encontrado!"
+          exit 1
+        fi
+        
+        DESTINATION_CLUSTER=$(yq eval '.api.destinationCluster' "$CONFIG_FILE")
+        IS_PUBLIC=$(yq eval '.api.isPublic' "$CONFIG_FILE")
+        
+        echo "destination-cluster=$DESTINATION_CLUSTER" >> $GITHUB_OUTPUT
+        echo "is-public=$IS_PUBLIC" >> $GITHUB_OUTPUT
+        
+        echo "📋 Configurações da API:"
+        echo "   Cluster: $DESTINATION_CLUSTER"
+        echo "   Público: $IS_PUBLIC"
     
-    - name: Deploy API
+    - name: Obter configuração do Gateway
+      id: get-gateway
+      uses: ramondea-sf/mule-api-flex-gateway-reusable-workflows/.github/actions/get-gateway-config@main
+      with:
+        environment: ${{ inputs.environment }}
+        destination-cluster: ${{ steps.read-api-config.outputs.destination-cluster }}
+        is-public: ${{ steps.read-api-config.outputs.is-public }}
+    
+    - name: Deploy API no Flex Gateway
       shell: bash
       env:
         ANYPOINT_CLIENT_ID: ${{ inputs.client-id }}
@@ -52,5 +71,7 @@ runs:
           "${{ inputs.api-name }}" \
           "${{ inputs.api-version }}" \
           "${{ inputs.environment }}" \
-          "$(cat /tmp/api-exists.txt 2>/dev/null || echo 'false')"
+          "${{ steps.get-gateway.outputs.gateway-id }}" \
+          "${{ steps.get-gateway.outputs.gateway-version }}" \
+          "${{ steps.get-gateway.outputs.gateway-label }}"
 

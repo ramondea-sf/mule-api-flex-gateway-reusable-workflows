@@ -1,0 +1,117 @@
+name: 'Get Gateway Configuration'
+description: 'Obtém a configuração do gateway (ID, versão e label) baseado no ambiente, cluster e tipo de exposição'
+
+inputs:
+  environment:
+    description: 'Ambiente (dev, qas, prod)'
+    required: true
+  destination-cluster:
+    description: 'Cluster de destino (aws-rosa, on-premise, pix, pj)'
+    required: true
+  is-public:
+    description: 'Se a API é pública (true/false)'
+    required: true
+
+outputs:
+  gateway-id:
+    description: 'ID do gateway Flex'
+    value: ${{ steps.get-config.outputs.gateway_id }}
+  gateway-version:
+    description: 'Versão do gateway Flex'
+    value: ${{ steps.get-config.outputs.gateway_version }}
+  gateway-label:
+    description: 'Label do gateway (public/private)'
+    value: ${{ steps.get-config.outputs.gateway_label }}
+  gateway-type:
+    description: 'Tipo do gateway (dmz/back)'
+    value: ${{ steps.get-config.outputs.gateway_type }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Get Gateway Configuration
+      id: get-config
+      shell: bash
+      run: |
+        ENVIRONMENT="${{ inputs.environment }}"
+        CLUSTER="${{ inputs.destination-cluster }}"
+        IS_PUBLIC="${{ inputs.is-public }}"
+        
+        echo "=================================================="
+        echo "🔍 Obtendo configuração do Gateway"
+        echo "=================================================="
+        echo "Ambiente: $ENVIRONMENT"
+        echo "Cluster: $CLUSTER"
+        echo "API Pública: $IS_PUBLIC"
+        echo ""
+        
+        # Determinar o tipo de gateway baseado em isPublic
+        if [ "$IS_PUBLIC" == "true" ]; then
+          GATEWAY_TYPE="dmz"
+          GATEWAY_LABEL="$ENVIRONMENT - public"
+          
+          # Validar se o cluster suporta DMZ
+          if [ "$CLUSTER" == "pix" ] || [ "$CLUSTER" == "pj" ]; then
+            echo "❌ Erro: Clusters PIX e PJ não suportam APIs públicas (DMZ)"
+            echo "   Altere isPublic para 'false' ou escolha outro cluster"
+            exit 1
+          fi
+        else
+          GATEWAY_TYPE="back"
+          GATEWAY_LABEL="$ENVIRONMENT - private"
+        fi
+        
+        echo "📍 Tipo de Gateway: $GATEWAY_TYPE"
+        echo "🏷️  Label: $GATEWAY_LABEL"
+        echo ""
+        
+        # Ler configuração do gateway-config.yaml
+        CONFIG_FILE="gateway-config.yaml"
+        
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "❌ Erro: Arquivo gateway-config.yaml não encontrado"
+          echo "   Certifique-se de que o arquivo existe na raiz do repositório"
+          exit 1
+        fi
+        
+        # Extrair ID e versão do gateway
+        GATEWAY_ID=$(yq eval ".gateways.$ENVIRONMENT.$CLUSTER.$GATEWAY_TYPE.id" "$CONFIG_FILE")
+        GATEWAY_VERSION=$(yq eval ".gateways.$ENVIRONMENT.$CLUSTER.$GATEWAY_TYPE.version" "$CONFIG_FILE")
+        
+        # Validar se os valores foram encontrados
+        if [ -z "$GATEWAY_ID" ] || [ "$GATEWAY_ID" == "null" ]; then
+          echo "❌ Erro: Gateway ID não encontrado para:"
+          echo "   Ambiente: $ENVIRONMENT"
+          echo "   Cluster: $CLUSTER"
+          echo "   Tipo: $GATEWAY_TYPE"
+          echo ""
+          echo "   Verifique o arquivo gateway-config.yaml"
+          exit 1
+        fi
+        
+        if [ -z "$GATEWAY_VERSION" ] || [ "$GATEWAY_VERSION" == "null" ]; then
+          echo "❌ Erro: Gateway Version não encontrada para:"
+          echo "   Ambiente: $ENVIRONMENT"
+          echo "   Cluster: $CLUSTER"
+          echo "   Tipo: $GATEWAY_TYPE"
+          echo ""
+          echo "   Verifique o arquivo gateway-config.yaml"
+          exit 1
+        fi
+        
+        echo "=================================================="
+        echo "✅ Configuração do Gateway obtida"
+        echo "=================================================="
+        echo "Gateway ID: $GATEWAY_ID"
+        echo "Gateway Version: $GATEWAY_VERSION"
+        echo "Gateway Type: $GATEWAY_TYPE"
+        echo "Gateway Label: $GATEWAY_LABEL"
+        echo "=================================================="
+        echo ""
+        
+        # Exportar outputs
+        echo "gateway_id=$GATEWAY_ID" >> $GITHUB_OUTPUT
+        echo "gateway_version=$GATEWAY_VERSION" >> $GITHUB_OUTPUT
+        echo "gateway_label=$GATEWAY_LABEL" >> $GITHUB_OUTPUT
+        echo "gateway_type=$GATEWAY_TYPE" >> $GITHUB_OUTPUT
+

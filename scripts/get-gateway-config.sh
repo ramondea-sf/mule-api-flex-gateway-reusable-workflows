@@ -113,40 +113,61 @@ echo "🔍 Passo 3: Buscando gateway '$GATEWAY_NAME'..."
 GATEWAY_API_URL="https://anypoint.mulesoft.com/gatewaymanager/xapi/v1/organizations/$ORG_ID/environments/$ENV_ID/gateways?kind=selfManaged"
 
 # Obter token de acesso
-TOKEN_RESPONSE=$(curl -s -X POST "https://anypoint.mulesoft.com/accounts/api/v2/oauth2/token" \
+echo "Obtendo token de acesso..."
+TOKEN_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST "https://anypoint.mulesoft.com/accounts/api/v2/oauth2/token" \
   -H "Content-Type: application/json" \
   -d "{\"client_id\":\"$ANYPOINT_CLIENT_ID\",\"client_secret\":\"$ANYPOINT_CLIENT_SECRET\",\"grant_type\":\"client_credentials\"}")
 
-if [ -z "$TOKEN_RESPONSE" ]; then
+HTTP_CODE=$(echo "$TOKEN_RESPONSE" | grep "HTTP_CODE:" | cut -d':' -f2)
+TOKEN_BODY=$(echo "$TOKEN_RESPONSE" | grep -v "HTTP_CODE:")
+
+echo "HTTP Status: $HTTP_CODE"
+
+if [ -z "$TOKEN_BODY" ]; then
   echo "❌ Erro: Resposta vazia ao obter token"
   exit 1
 fi
 
-ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token' 2>/dev/null)
+ACCESS_TOKEN=$(echo "$TOKEN_BODY" | jq -r '.access_token' 2>/dev/null)
 
 if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" == "null" ]; then
   echo "❌ Erro ao obter token de acesso"
+  echo "Response: $TOKEN_BODY"
   exit 1
 fi
 
+echo "✅ Token obtido"
+
 # Buscar gateways
-GATEWAYS_RESPONSE=$(curl -s -X GET "$GATEWAY_API_URL" \
+echo "Buscando gateways no ambiente..."
+GATEWAYS_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X GET "$GATEWAY_API_URL" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json")
 
-if [ $? -ne 0 ] || [ -z "$GATEWAYS_RESPONSE" ]; then
-  echo "❌ Erro ao buscar gateways"
+GATEWAYS_HTTP_CODE=$(echo "$GATEWAYS_RESPONSE" | grep "HTTP_CODE:" | cut -d':' -f2)
+GATEWAYS_BODY=$(echo "$GATEWAYS_RESPONSE" | grep -v "HTTP_CODE:")
+
+echo "HTTP Status: $GATEWAYS_HTTP_CODE"
+
+if [ "$GATEWAYS_HTTP_CODE" != "200" ]; then
+  echo "❌ Erro HTTP ao buscar gateways"
+  echo "Response: $GATEWAYS_BODY"
+  exit 1
+fi
+
+if [ -z "$GATEWAYS_BODY" ]; then
+  echo "❌ Erro: Resposta vazia ao buscar gateways"
   exit 1
 fi
 
 # Filtrar gateway por nome e status RUNNING
-GATEWAY_DATA=$(echo "$GATEWAYS_RESPONSE" | jq ".content[] | select(.name == \"$GATEWAY_NAME\" and .status == \"RUNNING\")" 2>/dev/null | head -n 1)
+GATEWAY_DATA=$(echo "$GATEWAYS_BODY" | jq ".content[] | select(.name == \"$GATEWAY_NAME\" and .status == \"RUNNING\")" 2>/dev/null | head -n 1)
 
 if [ -z "$GATEWAY_DATA" ] || [ "$GATEWAY_DATA" == "null" ]; then
   echo "❌ Erro: Gateway '$GATEWAY_NAME' não encontrado ou não está RUNNING"
   echo ""
-  echo "Gateways disponíveis no ambiente '$ENVIRONMENT':"
-  echo "$GATEWAYS_RESPONSE" | jq -r '.content[] | "\(.name) - Status: \(.status)"' 2>/dev/null
+  echo "Gateways disponíveis:"
+  echo "$GATEWAYS_BODY" | jq -r '.content[] | "\(.name) - Status: \(.status)"' 2>/dev/null
   exit 1
 fi
 

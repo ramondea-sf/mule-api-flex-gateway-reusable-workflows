@@ -205,7 +205,7 @@ fi
 
 # Buscar API por assetId e assetVersion
 echo "🔍 Buscando API com assetId='$ASSET_ID' e assetVersion='$DEPLOY_VERSION'..."
-EXISTING_API=$(echo "$API_LIST" | jq ".[] | select(.assetId==\"$ASSET_ID\" and .assetVersion==\"$DEPLOY_VERSION\")" 2>/dev/null | head -n 1)
+EXISTING_API=$(echo "$API_LIST" | jq -c ".[] | select(.assetId==\"$ASSET_ID\" and .assetVersion==\"$DEPLOY_VERSION\")" 2>/dev/null | head -n 1)
 
 echo "🔍 DEBUG - Resultado da busca (mesma versão):"
 echo "$EXISTING_API"
@@ -225,7 +225,7 @@ if [ -n "$EXISTING_API" ] && [ "$EXISTING_API" != "null" ] && [ "$EXISTING_API" 
 else
     # Verificar se existe API com o mesmo assetId mas versão diferente
     echo "🔍 Buscando API com assetId='$ASSET_ID' (qualquer versão)..."
-    EXISTING_API_DIFF_VERSION=$(echo "$API_LIST" | jq ".[] | select(.assetId==\"$ASSET_ID\")" 2>/dev/null | head -n 1)
+    EXISTING_API_DIFF_VERSION=$(echo "$API_LIST" | jq -c ".[] | select(.assetId==\"$ASSET_ID\")" 2>/dev/null | head -n 1)
     
     echo "🔍 DEBUG - Resultado da busca (qualquer versão):"
     echo "$EXISTING_API_DIFF_VERSION"

@@ -160,8 +160,25 @@ if [ -z "$GATEWAYS_BODY" ]; then
   exit 1
 fi
 
+echo "Primeiros 500 chars do response:"
+echo "$GATEWAYS_BODY" | head -c 500
+echo ""
+echo ""
+
 # Filtrar gateway por nome e status RUNNING
-GATEWAY_DATA=$(echo "$GATEWAYS_BODY" | jq ".content[] | select(.name == \"$GATEWAY_NAME\" and .status == \"RUNNING\")" 2>/dev/null | head -n 1)
+echo "Filtrando gateway '$GATEWAY_NAME'..."
+GATEWAY_DATA=$(echo "$GATEWAYS_BODY" | jq ".content[] | select(.name == \"$GATEWAY_NAME\" and .status == \"RUNNING\")" 2>&1)
+JQ_EXIT=$?
+
+echo "jq exit code: $JQ_EXIT"
+echo "Gateway data length: ${#GATEWAY_DATA}"
+echo ""
+
+if [ $JQ_EXIT -ne 0 ]; then
+  echo "❌ Erro no jq"
+  echo "jq output: $GATEWAY_DATA"
+  exit 1
+fi
 
 if [ -z "$GATEWAY_DATA" ] || [ "$GATEWAY_DATA" == "null" ]; then
   echo "❌ Erro: Gateway '$GATEWAY_NAME' não encontrado ou não está RUNNING"

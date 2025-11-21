@@ -423,6 +423,7 @@ elif [ "$API_ACTION" == "edit" ]; then
         --client_secret "$ANYPOINT_CLIENT_SECRET" \
         --organization "$ORG_ID" \
         --environment "$ENV_ID" \
+        --apiInstanceLabel "$INSTANCE_LABEL" \
         --scheme "$GATEWAY_SCHEMA" \
         --port "$GATEWAY_PORT" \
         --uri "$UPSTREAM_URI" \

@@ -114,12 +114,15 @@ echo ""
 
 # Tentar descrever o asset específico
 # Sintaxe: anypoint-cli-v4 exchange asset describe <groupId>:<assetId>:<version>
+# Desabilitar 'exit on error' temporariamente para capturar o exit code
+set +e
 VERSION_CHECK=$(anypoint-cli-v4 exchange asset describe "$ASSET_COORDINATE" \
     --client_id "$ANYPOINT_CLIENT_ID" \
     --client_secret "$ANYPOINT_CLIENT_SECRET" \
     --output json 2>&1)
 
 CHECK_STATUS=$?
+set -e  # Reabilitar 'exit on error'
 
 # Se exit code = 0, o asset existe
 if [ $CHECK_STATUS -eq 0 ]; then

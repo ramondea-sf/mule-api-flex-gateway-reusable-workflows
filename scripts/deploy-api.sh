@@ -44,13 +44,18 @@ PATH_STRATEGY=$(yq eval '.version.pathStrategy' $CONFIG_FILE)
 
 # Extrair configurações ESPECÍFICAS do AMBIENTE (do arquivo ${ENVIRONMENT}.yaml)
 ENV_ID=$(yq eval ".environment.environmentId" $ENV_FILE)
-UPSTREAM_URI=$(yq eval ".environment.upstreamUri" $ENV_FILE)
-BASE_PATH=$(yq eval ".environment.basePath" $ENV_FILE)
 
-# Extrair configurações do Gateway
+# Configurações do Upstream (backend)
+UPSTREAM_URI=$(yq eval ".environment.upstream.uri" $ENV_FILE)
+BASE_PATH=$(yq eval ".environment.upstream.basePath" $ENV_FILE)
+OUTBOUND_TLS_CONTEXT=$(yq eval ".environment.upstream.outboundTlsContextId" $ENV_FILE)
+OUTBOUND_SECRET_GROUP=$(yq eval ".environment.upstream.outboundSecretGroupId" $ENV_FILE)
+
+# Configurações do Gateway (listener)
 GATEWAY_SCHEMA=$(yq eval ".environment.gateway.schema" $ENV_FILE)
 GATEWAY_PORT=$(yq eval ".environment.gateway.port" $ENV_FILE)
-GATEWAY_TLS_CONTEXT=$(yq eval ".environment.gateway.tlsContextId" $ENV_FILE)
+INBOUND_TLS_CONTEXT=$(yq eval ".environment.gateway.inboundTlsContextId" $ENV_FILE)
+INBOUND_SECRET_GROUP=$(yq eval ".environment.gateway.inboundSecretGroupId" $ENV_FILE)
 
 # Ler informações do Exchange (geradas pelo script anterior)
 GROUP_ID=$(cat /tmp/exchange-group-id.txt)
@@ -95,7 +100,10 @@ echo "   GATEWAY_VERSION: $GATEWAY_VERSION"
 echo "   GATEWAY_LABEL: $GATEWAY_LABEL"
 echo "   GATEWAY_SCHEMA: $GATEWAY_SCHEMA"
 echo "   GATEWAY_PORT: $GATEWAY_PORT"
-echo "   GATEWAY_TLS_CONTEXT: $GATEWAY_TLS_CONTEXT"
+echo "   INBOUND_TLS_CONTEXT: $INBOUND_TLS_CONTEXT"
+echo "   INBOUND_SECRET_GROUP: $INBOUND_SECRET_GROUP"
+echo "   OUTBOUND_TLS_CONTEXT: $OUTBOUND_TLS_CONTEXT"
+echo "   OUTBOUND_SECRET_GROUP: $OUTBOUND_SECRET_GROUP"
 echo ""
 echo "=================================================="
 echo ""
@@ -142,114 +150,239 @@ echo "=================================================="
 echo ""
 
 # ============================================================================
-# PASSO 1: REGISTRAR API NO API MANAGER
+# PASSO 1: VERIFICAR SE API JÁ EXISTE
 # ============================================================================
 echo "=================================================="
-echo "📝 PASSO 1: Registrar API no API Manager"
+echo "🔍 PASSO 1: Verificar se API já existe"
 echo "=================================================="
 
 INSTANCE_LABEL="$GATEWAY_LABEL"
 
-# Construir parâmetro TLS se necessário
-TLS_PARAM=""
-if [ "$GATEWAY_SCHEMA" == "https" ] && [ -n "$GATEWAY_TLS_CONTEXT" ] && [ "$GATEWAY_TLS_CONTEXT" != "null" ] && [ "$GATEWAY_TLS_CONTEXT" != "" ]; then
-  TLS_PARAM="--tlsContextId $GATEWAY_TLS_CONTEXT"
-  echo "🔒 TLS Context configurado: $GATEWAY_TLS_CONTEXT"
-fi
-
-echo "📝 Registrando API..."
-echo "   Asset ID: $ASSET_ID"
-echo "   Versão: $DEPLOY_VERSION"
-echo "   Label: $INSTANCE_LABEL"
-echo "   Schema: $GATEWAY_SCHEMA"
-echo "   Port: $GATEWAY_PORT"
-echo "   Upstream URI: $UPSTREAM_URI"
-echo "   Path: $EXPOSED_PATH"
-echo ""
-
-# Registrar a API usando a sintaxe correta para Flex Gateway
-RESULT=$(anypoint-cli-v4 api-mgr api manage "$ASSET_ID" "$DEPLOY_VERSION" \
+echo "Listando APIs do asset '$ASSET_ID' no ambiente '$ENVIRONMENT'..."
+API_LIST=$(anypoint-cli-v4 api-mgr api list \
     --client_id "$ANYPOINT_CLIENT_ID" \
     --client_secret "$ANYPOINT_CLIENT_SECRET" \
     --organization "$ORG_ID" \
     --environment "$ENV_ID" \
-    --isFlex \
-    --withProxy \
-    --deploymentType hybrid \
-    --scheme "$GATEWAY_SCHEMA" \
-    --port "$GATEWAY_PORT" \
-    --uri "$UPSTREAM_URI" \
-    --path "$EXPOSED_PATH" \
-    --apiInstanceLabel "$INSTANCE_LABEL" \
-    $TLS_PARAM \
-    --output json 2>&1)
+    --assetId "$ASSET_ID" \
+    --output json 2>/dev/null || echo "[]")
 
-echo "📋 Resultado do registro:"
-echo "$RESULT"
-echo ""
+echo "Buscando API com label: $INSTANCE_LABEL"
 
-# Extrair API ID do resultado
-# Formato esperado: {"message": "Created new API with ID: 20614056"}
-API_ID=$(echo "$RESULT" | grep -oP 'ID:\s*\K[0-9]+')
+# Buscar API com o label específico
+EXISTING_API=$(echo "$API_LIST" | jq ".assets[] | select(.instanceLabel==\"$INSTANCE_LABEL\")" 2>/dev/null | head -n 1)
 
-# Se não encontrou, tentar via jq
-if [ -z "$API_ID" ]; then
-    API_ID=$(echo "$RESULT" | jq -r '.id // empty' 2>/dev/null)
-fi
-
-if [ -z "$API_ID" ] || [ "$API_ID" == "null" ]; then
-    echo "❌ Erro ao registrar API no API Manager"
+if [ -n "$EXISTING_API" ] && [ "$EXISTING_API" != "null" ]; then
+    API_ID=$(echo "$EXISTING_API" | jq -r '.id' 2>/dev/null)
+    CURRENT_VERSION=$(echo "$EXISTING_API" | jq -r '.assetVersion' 2>/dev/null)
+    
+    echo "✅ API encontrada!"
+    echo "   API ID: $API_ID"
+    echo "   Versão atual: $CURRENT_VERSION"
+    echo "   Versão a deployar: $DEPLOY_VERSION"
     echo ""
-    echo "⚠️  Verifique se:"
-    echo "   1. Os IDs de organização ($ORG_ID) e ambiente ($ENV_ID) estão corretos"
-    echo "   2. A Connected App tem permissões suficientes"
-    echo "   3. O asset $ASSET_ID:$DEPLOY_VERSION existe no Exchange"
-    exit 1
-fi
-
-echo "✅ API registrada com sucesso!"
-echo "📋 API ID: $API_ID"
-echo ""
-
-# ============================================================================
-# PASSO 2: FAZER DEPLOY NO FLEX GATEWAY
-# ============================================================================
-echo "=================================================="
-echo "🚀 PASSO 2: Deploy no Flex Gateway"
-echo "=================================================="
-echo "API ID: $API_ID"
-echo "Gateway ID: $GATEWAY_ID"
-echo "Gateway Version: $GATEWAY_VERSION"
-echo "Environment: $ENV_ID"
-echo ""
-
-echo "🔨 Executando deploy..."
-DEPLOY_RESULT=$(anypoint-cli-v4 api-mgr api deploy "$API_ID" \
-    --client_id "$ANYPOINT_CLIENT_ID" \
-    --client_secret "$ANYPOINT_CLIENT_SECRET" \
-    --organization "$ORG_ID" \
-    --environment "$ENV_ID" \
-    --target "$GATEWAY_ID" \
-    --gatewayVersion "$GATEWAY_VERSION" \
-    --output json 2>&1 || echo '{"error": true}')
-
-echo "📋 Resultado do deploy:"
-echo "$DEPLOY_RESULT"
-echo ""
-
-# Verificar se houve erro no deploy
-if echo "$DEPLOY_RESULT" | grep -qi "error\|failed\|exception"; then
-    echo "⚠️  Possível erro detectado no deploy"
-    echo ""
-    echo "⚠️  Verifique se:"
-    echo "   1. O Gateway ID $GATEWAY_ID está correto e online"
-    echo "   2. A versão do gateway $GATEWAY_VERSION é compatível"
-    echo "   3. Não há conflitos de configuração"
-    echo ""
-    echo "ℹ️  Em alguns casos, o deploy pode ser bem-sucedido mesmo com avisos"
-    echo "   Verifique o API Manager para confirmar o status"
+    
+    if [ "$CURRENT_VERSION" == "$DEPLOY_VERSION" ]; then
+        echo "✅ Versão já está deployada. Nenhuma atualização necessária."
+        echo ""
+        API_ACTION="skip"
+    else
+        echo "🔄 Versão diferente detectada. Será necessário atualizar a API."
+        echo ""
+        API_ACTION="edit"
+    fi
 else
-    echo "✅ Deploy executado com sucesso!"
+    echo "ℹ️  API não encontrada. Será criada uma nova."
+    echo ""
+    API_ACTION="create"
+fi
+
+# ============================================================================
+# PASSO 2: CONSTRUIR PARÂMETROS TLS/SECRET
+# ============================================================================
+echo "=================================================="
+echo "🔧 PASSO 2: Construir parâmetros de configuração"
+echo "=================================================="
+
+# Construir parâmetros opcionais
+OPTIONAL_PARAMS=""
+
+if [ -n "$INBOUND_TLS_CONTEXT" ] && [ "$INBOUND_TLS_CONTEXT" != "null" ] && [ "$INBOUND_TLS_CONTEXT" != "" ]; then
+  OPTIONAL_PARAMS="$OPTIONAL_PARAMS --inboundTlsContextId $INBOUND_TLS_CONTEXT"
+  echo "🔒 Inbound TLS Context: $INBOUND_TLS_CONTEXT"
+fi
+
+if [ -n "$INBOUND_SECRET_GROUP" ] && [ "$INBOUND_SECRET_GROUP" != "null" ] && [ "$INBOUND_SECRET_GROUP" != "" ]; then
+  OPTIONAL_PARAMS="$OPTIONAL_PARAMS --inboundSecretGroupId $INBOUND_SECRET_GROUP"
+  echo "🔐 Inbound Secret Group: $INBOUND_SECRET_GROUP"
+fi
+
+if [ -n "$OUTBOUND_TLS_CONTEXT" ] && [ "$OUTBOUND_TLS_CONTEXT" != "null" ] && [ "$OUTBOUND_TLS_CONTEXT" != "" ]; then
+  OPTIONAL_PARAMS="$OPTIONAL_PARAMS --outboundTlsContextId $OUTBOUND_TLS_CONTEXT"
+  echo "🔒 Outbound TLS Context: $OUTBOUND_TLS_CONTEXT"
+fi
+
+if [ -n "$OUTBOUND_SECRET_GROUP" ] && [ "$OUTBOUND_SECRET_GROUP" != "null" ] && [ "$OUTBOUND_SECRET_GROUP" != "" ]; then
+  OPTIONAL_PARAMS="$OPTIONAL_PARAMS --outboundSecretGroupId $OUTBOUND_SECRET_GROUP"
+  echo "🔐 Outbound Secret Group: $OUTBOUND_SECRET_GROUP"
+fi
+
+echo ""
+
+# ============================================================================
+# PASSO 3: CRIAR OU ATUALIZAR API
+# ============================================================================
+if [ "$API_ACTION" == "skip" ]; then
+    echo "=================================================="
+    echo "✅ PASSO 3: API já está atualizada"
+    echo "=================================================="
+    echo "Nenhuma ação necessária. A versão $DEPLOY_VERSION já está deployada."
+    echo ""
+elif [ "$API_ACTION" == "create" ]; then
+    # ========================================================================
+    # CRIAR NOVA API (api-mgr api manage + api-mgr api deploy)
+    # ========================================================================
+    echo "=================================================="
+    echo "📝 PASSO 3: Criar nova API no API Manager"
+    echo "=================================================="
+    
+    echo "Configuração:"
+    echo "   Asset ID: $ASSET_ID"
+    echo "   Versão: $DEPLOY_VERSION"
+    echo "   Label: $INSTANCE_LABEL"
+    echo "   Schema: $GATEWAY_SCHEMA"
+    echo "   Port: $GATEWAY_PORT"
+    echo "   Upstream URI: $UPSTREAM_URI"
+    echo "   Path: $EXPOSED_PATH"
+    echo ""
+    
+    echo "🔨 Criando API no API Manager..."
+    RESULT=$(anypoint-cli-v4 api-mgr api manage "$ASSET_ID" "$DEPLOY_VERSION" \
+        --client_id "$ANYPOINT_CLIENT_ID" \
+        --client_secret "$ANYPOINT_CLIENT_SECRET" \
+        --organization "$ORG_ID" \
+        --environment "$ENV_ID" \
+        --isFlex \
+        --withProxy \
+        --deploymentType hybrid \
+        --scheme "$GATEWAY_SCHEMA" \
+        --port "$GATEWAY_PORT" \
+        --uri "$UPSTREAM_URI" \
+        --path "$EXPOSED_PATH" \
+        --apiInstanceLabel "$INSTANCE_LABEL" \
+        $OPTIONAL_PARAMS \
+        --output json 2>&1)
+    
+    echo "📋 Resultado da criação:"
+    echo "$RESULT"
+    echo ""
+    
+    # Extrair API ID do resultado
+    API_ID=$(echo "$RESULT" | grep -oP 'ID:\s*\K[0-9]+')
+    
+    if [ -z "$API_ID" ]; then
+        API_ID=$(echo "$RESULT" | jq -r '.id // empty' 2>/dev/null)
+    fi
+    
+    if [ -z "$API_ID" ] || [ "$API_ID" == "null" ]; then
+        echo "❌ Erro ao criar API no API Manager"
+        exit 1
+    fi
+    
+    echo "✅ API criada com sucesso!"
+    echo "📋 API ID: $API_ID"
+    echo ""
+    
+    # ========================================================================
+    # FAZER DEPLOY NO FLEX GATEWAY
+    # ========================================================================
+    echo "=================================================="
+    echo "🚀 PASSO 4: Deploy no Flex Gateway"
+    echo "=================================================="
+    echo "API ID: $API_ID"
+    echo "Gateway ID: $GATEWAY_ID"
+    echo "Gateway Version: $GATEWAY_VERSION"
+    echo "Environment: $ENV_ID"
+    echo ""
+    
+    echo "🔨 Executando deploy..."
+    DEPLOY_RESULT=$(anypoint-cli-v4 api-mgr api deploy "$API_ID" \
+        --client_id "$ANYPOINT_CLIENT_ID" \
+        --client_secret "$ANYPOINT_CLIENT_SECRET" \
+        --organization "$ORG_ID" \
+        --environment "$ENV_ID" \
+        --target "$GATEWAY_ID" \
+        --gatewayVersion "$GATEWAY_VERSION" \
+        --output json 2>&1 || echo '{"error": true}')
+    
+    echo "📋 Resultado do deploy:"
+    echo "$DEPLOY_RESULT"
+    echo ""
+    
+    # Verificar se houve erro no deploy
+    if echo "$DEPLOY_RESULT" | grep -qi "error\|failed\|exception"; then
+        echo "⚠️  Possível erro detectado no deploy"
+        echo ""
+        echo "⚠️  Verifique se:"
+        echo "   1. O Gateway ID $GATEWAY_ID está correto e online"
+        echo "   2. A versão do gateway $GATEWAY_VERSION é compatível"
+        echo "   3. Não há conflitos de configuração"
+        echo ""
+        echo "ℹ️  Em alguns casos, o deploy pode ser bem-sucedido mesmo com avisos"
+        echo "   Verifique o API Manager para confirmar o status"
+    else
+        echo "✅ Deploy executado com sucesso!"
+    fi
+    echo ""
+    
+elif [ "$API_ACTION" == "edit" ]; then
+    # ========================================================================
+    # ATUALIZAR API EXISTENTE (apenas api-mgr api edit)
+    # ========================================================================
+    echo "=================================================="
+    echo "🔄 PASSO 3: Atualizar API existente no API Manager"
+    echo "=================================================="
+    
+    echo "Configuração:"
+    echo "   API ID: $API_ID"
+    echo "   Nova Versão: $DEPLOY_VERSION"
+    echo "   Label: $INSTANCE_LABEL"
+    echo "   Schema: $GATEWAY_SCHEMA"
+    echo "   Port: $GATEWAY_PORT"
+    echo "   Upstream URI: $UPSTREAM_URI"
+    echo "   Path: $EXPOSED_PATH"
+    echo ""
+    
+    echo "🔨 Atualizando API..."
+    RESULT=$(anypoint-cli-v4 api-mgr api edit "$API_ID" \
+        --client_id "$ANYPOINT_CLIENT_ID" \
+        --client_secret "$ANYPOINT_CLIENT_SECRET" \
+        --organization "$ORG_ID" \
+        --environment "$ENV_ID" \
+        --assetVersion "$DEPLOY_VERSION" \
+        --scheme "$GATEWAY_SCHEMA" \
+        --port "$GATEWAY_PORT" \
+        --uri "$UPSTREAM_URI" \
+        --path "$EXPOSED_PATH" \
+        $OPTIONAL_PARAMS \
+        --output json 2>&1)
+    
+    echo "📋 Resultado da atualização:"
+    echo "$RESULT"
+    echo ""
+    
+    # Verificar se houve erro
+    if echo "$RESULT" | grep -qi "error\|failed\|exception"; then
+        echo "❌ Erro ao atualizar API"
+        exit 1
+    fi
+    
+    echo "✅ API atualizada com sucesso!"
+    echo "📋 API ID: $API_ID"
+    echo ""
+    echo "ℹ️  O comando 'api-mgr api edit' já atualiza a API no gateway."
+    echo "   Não é necessário executar 'api-mgr api deploy' novamente."
+    echo ""
 fi
 
 # Salvar informações para próximos jobs

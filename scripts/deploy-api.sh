@@ -158,74 +158,58 @@ echo "=================================================="
 
 INSTANCE_LABEL="$GATEWAY_LABEL"
 
-echo "🔍 DEBUG - Parâmetros de busca:"
-echo "   Asset ID: $ASSET_ID"
-echo "   Environment: $ENVIRONMENT ($ENV_ID)"
-echo "   Label esperado: $INSTANCE_LABEL"
-echo "   Versão a deployar: $DEPLOY_VERSION"
-echo ""
-
-echo "Listando APIs do asset '$ASSET_ID' no ambiente '$ENVIRONMENT'..."
+echo "Buscando API do asset '$ASSET_ID' no ambiente '$ENVIRONMENT'..."
 API_LIST=$(anypoint-cli-v4 api-mgr api list \
     --client_id "$ANYPOINT_CLIENT_ID" \
     --client_secret "$ANYPOINT_CLIENT_SECRET" \
     --organization "$ORG_ID" \
     --environment "$ENV_ID" \
     --assetId "$ASSET_ID" \
-    --output json 2>&1 || echo "[]")
-
-echo ""
-echo "🔍 DEBUG - Output do comando api-mgr api list:"
-echo "----------------------------------------"
-echo "$API_LIST"
-echo "----------------------------------------"
-echo ""
+    --output json 2>/dev/null || echo "[]")
 
 # Verificar se é um array JSON válido
 if ! echo "$API_LIST" | jq empty 2>/dev/null; then
-    echo "⚠️  Resposta não é JSON válido. Definindo lista vazia."
     API_LIST="[]"
 fi
 
-echo "🔍 DEBUG - Estrutura do JSON:"
-echo "$API_LIST" | jq '.' 2>/dev/null || echo "Não foi possível parsear JSON"
-echo ""
-
-echo "Buscando API com label: $INSTANCE_LABEL"
-
-# Buscar API com o label específico
-EXISTING_API=$(echo "$API_LIST" | jq ".assets[] | select(.instanceLabel==\"$INSTANCE_LABEL\")" 2>/dev/null | head -n 1)
-
-echo "🔍 DEBUG - API encontrada (raw):"
-echo "$EXISTING_API"
-echo ""
+# Buscar API por assetId e assetVersion (forma mais confiável que label)
+EXISTING_API=$(echo "$API_LIST" | jq ".assets[] | select(.assetId==\"$ASSET_ID\" and .assetVersion==\"$DEPLOY_VERSION\")" 2>/dev/null | head -n 1)
 
 if [ -n "$EXISTING_API" ] && [ "$EXISTING_API" != "null" ]; then
+    # API encontrada com a mesma versão
     API_ID=$(echo "$EXISTING_API" | jq -r '.id' 2>/dev/null)
-    CURRENT_VERSION=$(echo "$EXISTING_API" | jq -r '.assetVersion' 2>/dev/null)
+    CURRENT_LABEL=$(echo "$EXISTING_API" | jq -r '.instanceLabel' 2>/dev/null)
     
-    echo "✅ API encontrada!"
+    echo "✅ API já existe com a versão $DEPLOY_VERSION"
     echo "   API ID: $API_ID"
-    echo "   Versão atual: $CURRENT_VERSION"
-    echo "   Versão a deployar: $DEPLOY_VERSION"
+    echo "   Label atual: $CURRENT_LABEL"
+    echo "   Nenhuma atualização necessária."
     echo ""
+    API_ACTION="skip"
+else
+    # Verificar se existe API com o mesmo assetId mas versão diferente
+    EXISTING_API_DIFF_VERSION=$(echo "$API_LIST" | jq ".assets[] | select(.assetId==\"$ASSET_ID\")" 2>/dev/null | head -n 1)
     
-    if [ "$CURRENT_VERSION" == "$DEPLOY_VERSION" ]; then
-        echo "✅ Versão já está deployada. Nenhuma atualização necessária."
-        echo ""
-        API_ACTION="skip"
-    else
-        echo "🔄 Versão diferente detectada. Será necessário atualizar a API."
+    if [ -n "$EXISTING_API_DIFF_VERSION" ] && [ "$EXISTING_API_DIFF_VERSION" != "null" ]; then
+        # API existe mas com versão diferente
+        API_ID=$(echo "$EXISTING_API_DIFF_VERSION" | jq -r '.id' 2>/dev/null)
+        CURRENT_VERSION=$(echo "$EXISTING_API_DIFF_VERSION" | jq -r '.assetVersion' 2>/dev/null)
+        
+        echo "🔄 API encontrada com versão diferente"
+        echo "   API ID: $API_ID"
+        echo "   Versão atual: $CURRENT_VERSION"
+        echo "   Versão a deployar: $DEPLOY_VERSION"
+        echo "   Ação: Atualizar versão"
         echo ""
         API_ACTION="edit"
+    else
+        # API não existe
+        echo "ℹ️  API não encontrada. Será criada uma nova."
+        echo "   Asset ID: $ASSET_ID"
+        echo "   Versão: $DEPLOY_VERSION"
+        echo ""
+        API_ACTION="create"
     fi
-else
-    echo "ℹ️  API não encontrada com label '$INSTANCE_LABEL'. Será criada uma nova."
-    echo ""
-    echo "🔍 DEBUG - Labels disponíveis no ambiente:"
-    echo "$API_LIST" | jq -r '.assets[]? | "  - \(.instanceLabel) (v\(.assetVersion))"' 2>/dev/null || echo "  Nenhuma API encontrada"
-    echo ""
-    API_ACTION="create"
 fi
 
 # ============================================================================

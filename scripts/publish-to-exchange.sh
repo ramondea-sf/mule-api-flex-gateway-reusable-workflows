@@ -121,12 +121,6 @@ VERSION_CHECK=$(anypoint-cli-v4 exchange asset describe "$ASSET_COORDINATE" \
 
 CHECK_STATUS=$?
 
-echo "📋 DEBUG - Saída do comando:"
-echo "$VERSION_CHECK"
-echo ""
-echo "📋 DEBUG - Exit code: $CHECK_STATUS"
-echo ""
-
 # Se exit code = 0, o asset existe
 if [ $CHECK_STATUS -eq 0 ]; then
     echo "⚠️  Versão $API_VERSION já existe no Exchange"

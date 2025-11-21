@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script para obter configuração do gateway dinamicamente via APIs
-# Uso: ./get-gateway-config.sh <environment> <cluster> <is-public> <org-id>
+# Uso: ./get-gateway-config.sh <environment> <cluster> <is-public> <org-id> <asset-version>
 
 set -e
 
@@ -9,6 +9,7 @@ ENVIRONMENT=$1
 CLUSTER=$2
 IS_PUBLIC=$3
 ORG_ID=$4
+ASSET_VERSION=$5
 
 echo "=================================================="
 echo "🔍 Obtendo configuração do Gateway (Dinâmica)"
@@ -17,12 +18,13 @@ echo "Ambiente: $ENVIRONMENT"
 echo "Cluster: $CLUSTER"
 echo "API Pública: $IS_PUBLIC"
 echo "Organization ID: $ORG_ID"
+echo "Asset Version: $ASSET_VERSION"
 echo ""
 
 # Determinar o tipo de gateway baseado em isPublic
 if [ "$IS_PUBLIC" == "true" ]; then
   GATEWAY_TYPE="dmz"
-  GATEWAY_LABEL="$ENVIRONMENT - public"
+  GATEWAY_LABEL="$ENVIRONMENT - public - v$ASSET_VERSION"
   
   # Validar se o cluster suporta DMZ
   if [ "$CLUSTER" == "pix" ] || [ "$CLUSTER" == "pj" ]; then
@@ -32,7 +34,7 @@ if [ "$IS_PUBLIC" == "true" ]; then
   fi
 else
   GATEWAY_TYPE="back"
-  GATEWAY_LABEL="$ENVIRONMENT - private"
+  GATEWAY_LABEL="$ENVIRONMENT - private - v$ASSET_VERSION"
 fi
 
 echo "📍 Tipo de Gateway: $GATEWAY_TYPE"

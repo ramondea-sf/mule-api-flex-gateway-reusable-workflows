@@ -61,6 +61,19 @@ runs:
         echo "organization-id=$ORG_ID" >> $GITHUB_OUTPUT
         echo "📋 Organization ID: $ORG_ID"
     
+    - name: Ler versão real a deployar
+      id: read-deploy-version
+      shell: bash
+      run: |
+        if [ -f "/tmp/version-to-deploy.txt" ]; then
+          DEPLOY_VERSION=$(cat /tmp/version-to-deploy.txt)
+          echo "deploy-version=$DEPLOY_VERSION" >> $GITHUB_OUTPUT
+          echo "📋 Versão a deployar (do Exchange): $DEPLOY_VERSION"
+        else
+          echo "deploy-version=${{ inputs.api-version }}" >> $GITHUB_OUTPUT
+          echo "📋 Versão a deployar (fallback): ${{ inputs.api-version }}"
+        fi
+    
     - name: Obter configuração do Gateway
       id: get-gateway
       uses: ramondea-sf/mule-api-flex-gateway-reusable-workflows/.github/actions/get-gateway-config@main
@@ -71,6 +84,7 @@ runs:
         client-id: ${{ inputs.client-id }}
         client-secret: ${{ inputs.client-secret }}
         organization-id: ${{ steps.read-org-id.outputs.organization-id }}
+        asset-version: ${{ steps.read-deploy-version.outputs.deploy-version }}
     
     - name: Deploy API no Flex Gateway
       shell: bash

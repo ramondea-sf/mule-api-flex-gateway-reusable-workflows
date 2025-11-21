@@ -20,6 +20,9 @@ inputs:
   organization-id:
     description: 'Organization ID'
     required: true
+  asset-version:
+    description: 'Versão do asset no Exchange'
+    required: true
 
 outputs:
   gateway-id:
@@ -55,7 +58,8 @@ runs:
           "${{ inputs.environment }}" \
           "${{ inputs.destination-cluster }}" \
           "${{ inputs.is-public }}" \
-          "${{ inputs.organization-id }}"
+          "${{ inputs.organization-id }}" \
+          "${{ inputs.asset-version }}"
     
     - name: Ler outputs do script
       id: get-config

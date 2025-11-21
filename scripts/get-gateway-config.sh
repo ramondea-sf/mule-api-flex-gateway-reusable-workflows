@@ -69,7 +69,7 @@ if [ -z "$ENV_ID" ] || [ "$ENV_ID" == "null" ]; then
   echo "❌ Erro: Ambiente '$ENVIRONMENT' não encontrado"
   echo ""
   echo "Ambientes disponíveis:"
-  echo "$ENV_LIST" | jq -r '.[].name'
+  echo "$ENV_LIST" | jq -r '.[].name' 2>/dev/null
   exit 1
 fi
 
@@ -166,21 +166,21 @@ if [ -z "$GATEWAYS_RESPONSE" ]; then
 fi
 
 # Filtrar gateway por nome e status RUNNING
-GATEWAY_DATA=$(echo "$GATEWAYS_RESPONSE" | jq -r ".content[] | select(.name == \"$GATEWAY_NAME\" and .status == \"RUNNING\")" 2>/dev/null | head -n 1)
+GATEWAY_DATA=$(echo "$GATEWAYS_RESPONSE" | jq ".content[] | select(.name == \"$GATEWAY_NAME\" and .status == \"RUNNING\")" 2>/dev/null | head -n 1)
 
 if [ -z "$GATEWAY_DATA" ]; then
   echo "❌ Erro: Gateway '$GATEWAY_NAME' não encontrado ou não está RUNNING"
   echo ""
   echo "Gateways disponíveis no ambiente '$ENVIRONMENT':"
-  echo "$GATEWAYS_RESPONSE" | jq -r '.content[] | "\(.name) - Status: \(.status)"'
+  echo "$GATEWAYS_RESPONSE" | jq -r '.content[] | "\(.name) - Status: \(.status)"' 2>/dev/null
   exit 1
 fi
 
-GATEWAY_ID=$(echo "$GATEWAY_DATA" | jq -r '.id')
+GATEWAY_ID=$(echo "$GATEWAY_DATA" | jq -r '.id' 2>/dev/null)
 
 echo "✅ Gateway encontrado!"
 echo "   ID: $GATEWAY_ID"
-echo "   Status: $(echo "$GATEWAY_DATA" | jq -r '.status')"
+echo "   Status: $(echo "$GATEWAY_DATA" | jq -r '.status' 2>/dev/null)"
 echo ""
 
 # ============================================================================

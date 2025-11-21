@@ -158,24 +158,60 @@ echo "=================================================="
 
 INSTANCE_LABEL="$GATEWAY_LABEL"
 
-echo "Buscando API do asset '$ASSET_ID' no ambiente '$ENVIRONMENT'..."
+echo "🔍 DEBUG - Parâmetros de busca:"
+echo "   Organization ID: $ORG_ID"
+echo "   Environment ID: $ENV_ID"
+echo "   Asset ID: $ASSET_ID"
+echo "   Versão a deployar: $DEPLOY_VERSION"
+echo "   Label esperado: $INSTANCE_LABEL"
+echo ""
+
+echo "Executando comando: anypoint-cli-v4 api-mgr api list --assetId $ASSET_ID"
 API_LIST=$(anypoint-cli-v4 api-mgr api list \
     --client_id "$ANYPOINT_CLIENT_ID" \
     --client_secret "$ANYPOINT_CLIENT_SECRET" \
     --organization "$ORG_ID" \
     --environment "$ENV_ID" \
     --assetId "$ASSET_ID" \
-    --output json 2>/dev/null || echo "[]")
+    --output json 2>&1)
+
+echo ""
+echo "🔍 DEBUG - Output completo do api-mgr api list:"
+echo "=========================================="
+echo "$API_LIST"
+echo "=========================================="
+echo ""
 
 # Verificar se é um array JSON válido
 if ! echo "$API_LIST" | jq empty 2>/dev/null; then
+    echo "⚠️  Resposta não é JSON válido. Definindo lista vazia."
     API_LIST="[]"
 fi
 
-# Buscar API por assetId e assetVersion (forma mais confiável que label)
+echo "🔍 DEBUG - JSON parseado:"
+echo "$API_LIST" | jq '.' 2>/dev/null || echo "Erro ao parsear JSON"
+echo ""
+
+# Contar quantas APIs foram encontradas
+API_COUNT=$(echo "$API_LIST" | jq '.assets | length' 2>/dev/null || echo "0")
+echo "📊 Total de APIs encontradas com assetId '$ASSET_ID': $API_COUNT"
+echo ""
+
+if [ "$API_COUNT" != "0" ]; then
+    echo "🔍 DEBUG - Lista de APIs encontradas:"
+    echo "$API_LIST" | jq -r '.assets[] | "  - ID: \(.id) | Asset: \(.assetId) | Version: \(.assetVersion) | Label: \(.instanceLabel)"' 2>/dev/null
+    echo ""
+fi
+
+# Buscar API por assetId e assetVersion
+echo "🔍 Buscando API com assetId='$ASSET_ID' e assetVersion='$DEPLOY_VERSION'..."
 EXISTING_API=$(echo "$API_LIST" | jq ".assets[] | select(.assetId==\"$ASSET_ID\" and .assetVersion==\"$DEPLOY_VERSION\")" 2>/dev/null | head -n 1)
 
-if [ -n "$EXISTING_API" ] && [ "$EXISTING_API" != "null" ]; then
+echo "🔍 DEBUG - Resultado da busca (mesma versão):"
+echo "$EXISTING_API"
+echo ""
+
+if [ -n "$EXISTING_API" ] && [ "$EXISTING_API" != "null" ] && [ "$EXISTING_API" != "" ]; then
     # API encontrada com a mesma versão
     API_ID=$(echo "$EXISTING_API" | jq -r '.id' 2>/dev/null)
     CURRENT_LABEL=$(echo "$EXISTING_API" | jq -r '.instanceLabel' 2>/dev/null)
@@ -188,9 +224,14 @@ if [ -n "$EXISTING_API" ] && [ "$EXISTING_API" != "null" ]; then
     API_ACTION="skip"
 else
     # Verificar se existe API com o mesmo assetId mas versão diferente
+    echo "🔍 Buscando API com assetId='$ASSET_ID' (qualquer versão)..."
     EXISTING_API_DIFF_VERSION=$(echo "$API_LIST" | jq ".assets[] | select(.assetId==\"$ASSET_ID\")" 2>/dev/null | head -n 1)
     
-    if [ -n "$EXISTING_API_DIFF_VERSION" ] && [ "$EXISTING_API_DIFF_VERSION" != "null" ]; then
+    echo "🔍 DEBUG - Resultado da busca (qualquer versão):"
+    echo "$EXISTING_API_DIFF_VERSION"
+    echo ""
+    
+    if [ -n "$EXISTING_API_DIFF_VERSION" ] && [ "$EXISTING_API_DIFF_VERSION" != "null" ] && [ "$EXISTING_API_DIFF_VERSION" != "" ]; then
         # API existe mas com versão diferente
         API_ID=$(echo "$EXISTING_API_DIFF_VERSION" | jq -r '.id' 2>/dev/null)
         CURRENT_VERSION=$(echo "$EXISTING_API_DIFF_VERSION" | jq -r '.assetVersion' 2>/dev/null)
@@ -204,13 +245,17 @@ else
         API_ACTION="edit"
     else
         # API não existe
-        echo "ℹ️  API não encontrada. Será criada uma nova."
-        echo "   Asset ID: $ASSET_ID"
-        echo "   Versão: $DEPLOY_VERSION"
+        echo "ℹ️  API não encontrada no ambiente."
+        echo "   Asset ID buscado: $ASSET_ID"
+        echo "   Versão buscada: $DEPLOY_VERSION"
+        echo "   Ação: Criar nova API"
         echo ""
         API_ACTION="create"
     fi
 fi
+
+echo "📋 Decisão final: $API_ACTION"
+echo ""
 
 # ============================================================================
 # PASSO 2: CONSTRUIR PARÂMETROS TLS/SECRET

@@ -166,9 +166,21 @@ if [ -z "$GATEWAYS_RESPONSE" ]; then
 fi
 
 # Filtrar gateway por nome e status RUNNING
-GATEWAY_DATA=$(echo "$GATEWAYS_RESPONSE" | jq ".content[] | select(.name == \"$GATEWAY_NAME\" and .status == \"RUNNING\")" 2>/dev/null | head -n 1)
+echo "🔍 DEBUG - Filtrando gateway '$GATEWAY_NAME' com status RUNNING..."
+GATEWAY_DATA=$(echo "$GATEWAYS_RESPONSE" | jq ".content[] | select(.name == \"$GATEWAY_NAME\" and .status == \"RUNNING\")" 2>&1)
+FILTER_STATUS=$?
 
-if [ -z "$GATEWAY_DATA" ]; then
+echo "🔍 DEBUG - Filter exit code: $FILTER_STATUS"
+echo "🔍 DEBUG - Gateway Data:"
+echo "$GATEWAY_DATA"
+echo ""
+
+if [ $FILTER_STATUS -ne 0 ]; then
+  echo "❌ Erro no filtro jq"
+  exit 1
+fi
+
+if [ -z "$GATEWAY_DATA" ] || [ "$GATEWAY_DATA" == "null" ]; then
   echo "❌ Erro: Gateway '$GATEWAY_NAME' não encontrado ou não está RUNNING"
   echo ""
   echo "Gateways disponíveis no ambiente '$ENVIRONMENT':"

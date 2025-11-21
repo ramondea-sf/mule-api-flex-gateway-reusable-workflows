@@ -193,19 +193,19 @@ echo "$API_LIST" | jq '.' 2>/dev/null || echo "Erro ao parsear JSON"
 echo ""
 
 # Contar quantas APIs foram encontradas
-API_COUNT=$(echo "$API_LIST" | jq '.assets | length' 2>/dev/null || echo "0")
+API_COUNT=$(echo "$API_LIST" | jq 'length' 2>/dev/null || echo "0")
 echo "📊 Total de APIs encontradas com assetId '$ASSET_ID': $API_COUNT"
 echo ""
 
 if [ "$API_COUNT" != "0" ]; then
     echo "🔍 DEBUG - Lista de APIs encontradas:"
-    echo "$API_LIST" | jq -r '.assets[] | "  - ID: \(.id) | Asset: \(.assetId) | Version: \(.assetVersion) | Label: \(.instanceLabel)"' 2>/dev/null
+    echo "$API_LIST" | jq -r '.[] | "  - ID: \(.id) | Asset: \(.assetId) | Version: \(.assetVersion) | Label: \(.instanceLabel)"' 2>/dev/null
     echo ""
 fi
 
 # Buscar API por assetId e assetVersion
 echo "🔍 Buscando API com assetId='$ASSET_ID' e assetVersion='$DEPLOY_VERSION'..."
-EXISTING_API=$(echo "$API_LIST" | jq ".assets[] | select(.assetId==\"$ASSET_ID\" and .assetVersion==\"$DEPLOY_VERSION\")" 2>/dev/null | head -n 1)
+EXISTING_API=$(echo "$API_LIST" | jq ".[] | select(.assetId==\"$ASSET_ID\" and .assetVersion==\"$DEPLOY_VERSION\")" 2>/dev/null | head -n 1)
 
 echo "🔍 DEBUG - Resultado da busca (mesma versão):"
 echo "$EXISTING_API"
@@ -225,7 +225,7 @@ if [ -n "$EXISTING_API" ] && [ "$EXISTING_API" != "null" ] && [ "$EXISTING_API" 
 else
     # Verificar se existe API com o mesmo assetId mas versão diferente
     echo "🔍 Buscando API com assetId='$ASSET_ID' (qualquer versão)..."
-    EXISTING_API_DIFF_VERSION=$(echo "$API_LIST" | jq ".assets[] | select(.assetId==\"$ASSET_ID\")" 2>/dev/null | head -n 1)
+    EXISTING_API_DIFF_VERSION=$(echo "$API_LIST" | jq ".[] | select(.assetId==\"$ASSET_ID\")" 2>/dev/null | head -n 1)
     
     echo "🔍 DEBUG - Resultado da busca (qualquer versão):"
     echo "$EXISTING_API_DIFF_VERSION"

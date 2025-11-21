@@ -368,7 +368,7 @@ elif [ "$API_ACTION" == "create" ]; then
     
 elif [ "$API_ACTION" == "edit" ]; then
     # ========================================================================
-    # ATUALIZAR API EXISTENTE (apenas api-mgr api edit)
+    # ATUALIZAR API EXISTENTE (change-specification + api edit)
     # ========================================================================
     echo "=================================================="
     echo "🔄 PASSO 3: Atualizar API existente no API Manager"
@@ -376,24 +376,53 @@ elif [ "$API_ACTION" == "edit" ]; then
     
     echo "Configuração:"
     echo "   API ID: $API_ID"
+    echo "   Versão atual: $CURRENT_VERSION"
     echo "   Nova Versão: $DEPLOY_VERSION"
-    echo "   Label: $INSTANCE_LABEL"
     echo "   Schema: $GATEWAY_SCHEMA"
     echo "   Port: $GATEWAY_PORT"
     echo "   Upstream URI: $UPSTREAM_URI"
     echo "   Path: $EXPOSED_PATH"
     echo ""
     
-    echo "🔨 Atualizando API..."
+    # ========================================================================
+    # PASSO 3.1: Alterar versão do asset
+    # ========================================================================
+    echo "🔄 Passo 3.1: Alterando versão do asset no Exchange..."
     
-    # Desabilitar 'exit on error' temporariamente
     set +e
-    RESULT=$(anypoint-cli-v4 api-mgr api edit "$API_ID" \
+    CHANGE_SPEC_RESULT=$(anypoint-cli-v4 api-mgr api change-specification "$API_ID" "$DEPLOY_VERSION" \
         --client_id "$ANYPOINT_CLIENT_ID" \
         --client_secret "$ANYPOINT_CLIENT_SECRET" \
         --organization "$ORG_ID" \
         --environment "$ENV_ID" \
-        --assetVersion "$DEPLOY_VERSION" \
+        --output json 2>&1)
+    
+    CHANGE_SPEC_STATUS=$?
+    set -e
+    
+    echo "📋 Resultado da alteração de especificação:"
+    echo "$CHANGE_SPEC_RESULT"
+    echo ""
+    
+    if [ $CHANGE_SPEC_STATUS -ne 0 ]; then
+        echo "❌ Erro ao alterar versão da especificação (exit code: $CHANGE_SPEC_STATUS)"
+        exit 1
+    fi
+    
+    echo "✅ Versão da especificação alterada: $CURRENT_VERSION → $DEPLOY_VERSION"
+    echo ""
+    
+    # ========================================================================
+    # PASSO 3.2: Atualizar configurações da API
+    # ========================================================================
+    echo "🔄 Passo 3.2: Atualizando configurações da API..."
+    
+    set +e
+    EDIT_RESULT=$(anypoint-cli-v4 api-mgr api edit "$API_ID" \
+        --client_id "$ANYPOINT_CLIENT_ID" \
+        --client_secret "$ANYPOINT_CLIENT_SECRET" \
+        --organization "$ORG_ID" \
+        --environment "$ENV_ID" \
         --scheme "$GATEWAY_SCHEMA" \
         --port "$GATEWAY_PORT" \
         --uri "$UPSTREAM_URI" \
@@ -402,23 +431,20 @@ elif [ "$API_ACTION" == "edit" ]; then
         --output json 2>&1)
     
     EDIT_STATUS=$?
-    set -e  # Reabilitar 'exit on error'
+    set -e
     
     echo "📋 Resultado da atualização:"
-    echo "$RESULT"
+    echo "$EDIT_RESULT"
     echo ""
     
-    # Verificar se houve erro
-    if [ $EDIT_STATUS -ne 0 ] || echo "$RESULT" | grep -qi "error\|failed\|exception"; then
-        echo "❌ Erro ao atualizar API (exit code: $EDIT_STATUS)"
+    if [ $EDIT_STATUS -ne 0 ] || echo "$EDIT_RESULT" | grep -qi "error\|failed\|exception"; then
+        echo "❌ Erro ao atualizar configurações da API (exit code: $EDIT_STATUS)"
         exit 1
     fi
     
     echo "✅ API atualizada com sucesso!"
     echo "📋 API ID: $API_ID"
-    echo ""
-    echo "ℹ️  O comando 'api-mgr api edit' já atualiza a API no gateway."
-    echo "   Não é necessário executar 'api-mgr api deploy' novamente."
+    echo "📋 Nova versão: $DEPLOY_VERSION"
     echo ""
 fi
 

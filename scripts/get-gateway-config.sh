@@ -162,10 +162,6 @@ if [ -z "$GATEWAYS_BODY" ]; then
   exit 1
 fi
 
-echo "Primeiros 500 chars do response:"
-echo "$GATEWAYS_BODY" | head -c 500
-echo ""
-echo ""
 
 # Filtrar gateway por nome e status RUNNING
 echo "Filtrando gateway '$GATEWAY_NAME'..."

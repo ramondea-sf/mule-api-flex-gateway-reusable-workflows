@@ -158,58 +158,31 @@ echo "=================================================="
 
 INSTANCE_LABEL="$GATEWAY_LABEL"
 
-echo "🔍 DEBUG - Parâmetros de busca:"
-echo "   Organization ID: $ORG_ID"
-echo "   Environment ID: $ENV_ID"
-echo "   Asset ID: $ASSET_ID"
-echo "   Versão a deployar: $DEPLOY_VERSION"
-echo "   Label esperado: $INSTANCE_LABEL"
-echo ""
-
-echo "Executando comando: anypoint-cli-v4 api-mgr api list --assetId $ASSET_ID"
+echo "Buscando API do asset '$ASSET_ID' no ambiente '$ENVIRONMENT'..."
 API_LIST=$(anypoint-cli-v4 api-mgr api list \
     --client_id "$ANYPOINT_CLIENT_ID" \
     --client_secret "$ANYPOINT_CLIENT_SECRET" \
     --organization "$ORG_ID" \
     --environment "$ENV_ID" \
     --assetId "$ASSET_ID" \
-    --output json 2>&1)
-
-echo ""
-echo "🔍 DEBUG - Output completo do api-mgr api list:"
-echo "=========================================="
-echo "$API_LIST"
-echo "=========================================="
-echo ""
+    --output json 2>/dev/null)
 
 # Verificar se é um array JSON válido
 if ! echo "$API_LIST" | jq empty 2>/dev/null; then
-    echo "⚠️  Resposta não é JSON válido. Definindo lista vazia."
     API_LIST="[]"
 fi
 
-echo "🔍 DEBUG - JSON parseado:"
-echo "$API_LIST" | jq '.' 2>/dev/null || echo "Erro ao parsear JSON"
-echo ""
-
 # Contar quantas APIs foram encontradas
 API_COUNT=$(echo "$API_LIST" | jq 'length' 2>/dev/null || echo "0")
-echo "📊 Total de APIs encontradas com assetId '$ASSET_ID': $API_COUNT"
-echo ""
 
 if [ "$API_COUNT" != "0" ]; then
-    echo "🔍 DEBUG - Lista de APIs encontradas:"
-    echo "$API_LIST" | jq -r '.[] | "  - ID: \(.id) | Asset: \(.assetId) | Version: \(.assetVersion) | Label: \(.instanceLabel)"' 2>/dev/null
+    echo "📊 APIs encontradas: $API_COUNT"
+    echo "$API_LIST" | jq -r '.[] | "   - \(.assetId) v\(.assetVersion) (ID: \(.id))"' 2>/dev/null
     echo ""
 fi
 
 # Buscar API por assetId e assetVersion
-echo "🔍 Buscando API com assetId='$ASSET_ID' e assetVersion='$DEPLOY_VERSION'..."
 EXISTING_API=$(echo "$API_LIST" | jq -c ".[] | select(.assetId==\"$ASSET_ID\" and .assetVersion==\"$DEPLOY_VERSION\")" 2>/dev/null | head -n 1)
-
-echo "🔍 DEBUG - Resultado da busca (mesma versão):"
-echo "$EXISTING_API"
-echo ""
 
 if [ -n "$EXISTING_API" ] && [ "$EXISTING_API" != "null" ] && [ "$EXISTING_API" != "" ]; then
     # API encontrada com a mesma versão
@@ -218,18 +191,12 @@ if [ -n "$EXISTING_API" ] && [ "$EXISTING_API" != "null" ] && [ "$EXISTING_API" 
     
     echo "✅ API já existe com a versão $DEPLOY_VERSION"
     echo "   API ID: $API_ID"
-    echo "   Label atual: $CURRENT_LABEL"
-    echo "   Nenhuma atualização necessária."
+    echo "   Label: $CURRENT_LABEL"
     echo ""
     API_ACTION="skip"
 else
     # Verificar se existe API com o mesmo assetId mas versão diferente
-    echo "🔍 Buscando API com assetId='$ASSET_ID' (qualquer versão)..."
     EXISTING_API_DIFF_VERSION=$(echo "$API_LIST" | jq -c ".[] | select(.assetId==\"$ASSET_ID\")" 2>/dev/null | head -n 1)
-    
-    echo "🔍 DEBUG - Resultado da busca (qualquer versão):"
-    echo "$EXISTING_API_DIFF_VERSION"
-    echo ""
     
     if [ -n "$EXISTING_API_DIFF_VERSION" ] && [ "$EXISTING_API_DIFF_VERSION" != "null" ] && [ "$EXISTING_API_DIFF_VERSION" != "" ]; then
         # API existe mas com versão diferente
@@ -238,24 +205,16 @@ else
         
         echo "🔄 API encontrada com versão diferente"
         echo "   API ID: $API_ID"
-        echo "   Versão atual: $CURRENT_VERSION"
-        echo "   Versão a deployar: $DEPLOY_VERSION"
-        echo "   Ação: Atualizar versão"
+        echo "   Versão atual: $CURRENT_VERSION → Nova versão: $DEPLOY_VERSION"
         echo ""
         API_ACTION="edit"
     else
         # API não existe
-        echo "ℹ️  API não encontrada no ambiente."
-        echo "   Asset ID buscado: $ASSET_ID"
-        echo "   Versão buscada: $DEPLOY_VERSION"
-        echo "   Ação: Criar nova API"
+        echo "ℹ️  API não encontrada. Será criada uma nova."
         echo ""
         API_ACTION="create"
     fi
 fi
-
-echo "📋 Decisão final: $API_ACTION"
-echo ""
 
 # ============================================================================
 # PASSO 2: CONSTRUIR PARÂMETROS TLS/SECRET
@@ -317,6 +276,9 @@ elif [ "$API_ACTION" == "create" ]; then
     echo ""
     
     echo "🔨 Criando API no API Manager..."
+    
+    # Desabilitar 'exit on error' temporariamente
+    set +e
     RESULT=$(anypoint-cli-v4 api-mgr api manage "$ASSET_ID" "$DEPLOY_VERSION" \
         --client_id "$ANYPOINT_CLIENT_ID" \
         --client_secret "$ANYPOINT_CLIENT_SECRET" \
@@ -333,9 +295,18 @@ elif [ "$API_ACTION" == "create" ]; then
         $OPTIONAL_PARAMS \
         --output json 2>&1)
     
+    MANAGE_STATUS=$?
+    set -e  # Reabilitar 'exit on error'
+    
     echo "📋 Resultado da criação:"
     echo "$RESULT"
     echo ""
+    
+    # Verificar se o comando falhou
+    if [ $MANAGE_STATUS -ne 0 ]; then
+        echo "❌ Erro ao criar API no API Manager (exit code: $MANAGE_STATUS)"
+        exit 1
+    fi
     
     # Extrair API ID do resultado
     API_ID=$(echo "$RESULT" | grep -oP 'ID:\s*\K[0-9]+')
@@ -345,7 +316,7 @@ elif [ "$API_ACTION" == "create" ]; then
     fi
     
     if [ -z "$API_ID" ] || [ "$API_ID" == "null" ]; then
-        echo "❌ Erro ao criar API no API Manager"
+        echo "❌ Erro ao extrair API ID do resultado"
         exit 1
     fi
     
@@ -414,6 +385,9 @@ elif [ "$API_ACTION" == "edit" ]; then
     echo ""
     
     echo "🔨 Atualizando API..."
+    
+    # Desabilitar 'exit on error' temporariamente
+    set +e
     RESULT=$(anypoint-cli-v4 api-mgr api edit "$API_ID" \
         --client_id "$ANYPOINT_CLIENT_ID" \
         --client_secret "$ANYPOINT_CLIENT_SECRET" \
@@ -427,13 +401,16 @@ elif [ "$API_ACTION" == "edit" ]; then
         $OPTIONAL_PARAMS \
         --output json 2>&1)
     
+    EDIT_STATUS=$?
+    set -e  # Reabilitar 'exit on error'
+    
     echo "📋 Resultado da atualização:"
     echo "$RESULT"
     echo ""
     
     # Verificar se houve erro
-    if echo "$RESULT" | grep -qi "error\|failed\|exception"; then
-        echo "❌ Erro ao atualizar API"
+    if [ $EDIT_STATUS -ne 0 ] || echo "$RESULT" | grep -qi "error\|failed\|exception"; then
+        echo "❌ Erro ao atualizar API (exit code: $EDIT_STATUS)"
         exit 1
     fi
     

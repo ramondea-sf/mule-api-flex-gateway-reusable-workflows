@@ -212,12 +212,12 @@ if [ -z "$EXISTING_API_ID" ] || [ "$EXISTING_API_ID" == "null" ]; then
         --client_id "$ANYPOINT_CLIENT_ID" \
         --client_secret "$ANYPOINT_CLIENT_SECRET" \
         --organization "$ORG_ID" \
-        --environment "$ENV_ID" \
+        --environment "$ENVIRONMENT" \
         --isFlex \
         --withProxy \
         --deploymentType hybrid \
-        --scheme https \
-        --port 443 \
+        --scheme http \
+        --port 80 \
         --uri "$UPSTREAM_URI" \
         --path "$EXPOSED_PATH" \
         --apiInstanceLabel "$INSTANCE_LABEL" \

@@ -49,16 +49,8 @@ ENV_LIST=$(anypoint-cli-v4 account environment list \
   --client_secret "$ANYPOINT_CLIENT_SECRET" \
   --output json 2>&1)
 
-ENV_STATUS=$?
-
-echo "🔍 DEBUG - Environment List Response:"
-echo "$ENV_LIST" | head -c 500
-echo ""
-echo ""
-
-if [ $ENV_STATUS -ne 0 ] || [ -z "$ENV_LIST" ]; then
+if [ $? -ne 0 ] || [ -z "$ENV_LIST" ]; then
   echo "❌ Erro ao listar ambientes"
-  echo "Exit code: $ENV_STATUS"
   exit 1
 fi
 
@@ -125,10 +117,6 @@ TOKEN_RESPONSE=$(curl -s -X POST "https://anypoint.mulesoft.com/accounts/api/v2/
   -H "Content-Type: application/json" \
   -d "{\"client_id\":\"$ANYPOINT_CLIENT_ID\",\"client_secret\":\"$ANYPOINT_CLIENT_SECRET\",\"grant_type\":\"client_credentials\"}")
 
-echo "🔍 DEBUG - Token Response:"
-echo "$TOKEN_RESPONSE"
-echo ""
-
 if [ -z "$TOKEN_RESPONSE" ]; then
   echo "❌ Erro: Resposta vazia ao obter token"
   exit 1
@@ -138,47 +126,21 @@ ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token' 2>/dev/null)
 
 if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" == "null" ]; then
   echo "❌ Erro ao obter token de acesso"
-  echo "Response completa: $TOKEN_RESPONSE"
   exit 1
 fi
-
-echo "✅ Token obtido com sucesso"
-echo ""
 
 # Buscar gateways
 GATEWAYS_RESPONSE=$(curl -s -X GET "$GATEWAY_API_URL" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json")
 
-if [ $? -ne 0 ]; then
+if [ $? -ne 0 ] || [ -z "$GATEWAYS_RESPONSE" ]; then
   echo "❌ Erro ao buscar gateways"
   exit 1
 fi
 
-echo "🔍 DEBUG - Gateways Response (primeiras 500 chars):"
-echo "$GATEWAYS_RESPONSE" | head -c 500
-echo ""
-echo ""
-
-if [ -z "$GATEWAYS_RESPONSE" ]; then
-  echo "❌ Erro: Resposta vazia ao buscar gateways"
-  exit 1
-fi
-
 # Filtrar gateway por nome e status RUNNING
-echo "🔍 DEBUG - Filtrando gateway '$GATEWAY_NAME' com status RUNNING..."
-GATEWAY_DATA=$(echo "$GATEWAYS_RESPONSE" | jq ".content[] | select(.name == \"$GATEWAY_NAME\" and .status == \"RUNNING\")" 2>&1)
-FILTER_STATUS=$?
-
-echo "🔍 DEBUG - Filter exit code: $FILTER_STATUS"
-echo "🔍 DEBUG - Gateway Data:"
-echo "$GATEWAY_DATA"
-echo ""
-
-if [ $FILTER_STATUS -ne 0 ]; then
-  echo "❌ Erro no filtro jq"
-  exit 1
-fi
+GATEWAY_DATA=$(echo "$GATEWAYS_RESPONSE" | jq ".content[] | select(.name == \"$GATEWAY_NAME\" and .status == \"RUNNING\")" 2>/dev/null | head -n 1)
 
 if [ -z "$GATEWAY_DATA" ] || [ "$GATEWAY_DATA" == "null" ]; then
   echo "❌ Erro: Gateway '$GATEWAY_NAME' não encontrado ou não está RUNNING"
@@ -206,18 +168,8 @@ REPLICAS_RESPONSE=$(curl -s -X GET "$REPLICAS_API_URL" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json")
 
-if [ $? -ne 0 ]; then
+if [ $? -ne 0 ] || [ -z "$REPLICAS_RESPONSE" ]; then
   echo "❌ Erro ao buscar réplicas do gateway"
-  exit 1
-fi
-
-echo "🔍 DEBUG - Replicas Response (primeiras 500 chars):"
-echo "$REPLICAS_RESPONSE" | head -c 500
-echo ""
-echo ""
-
-if [ -z "$REPLICAS_RESPONSE" ]; then
-  echo "❌ Erro: Resposta vazia ao buscar réplicas"
   exit 1
 fi
 

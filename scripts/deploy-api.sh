@@ -212,7 +212,7 @@ if [ -z "$EXISTING_API_ID" ] || [ "$EXISTING_API_ID" == "null" ]; then
         --client_id "$ANYPOINT_CLIENT_ID" \
         --client_secret "$ANYPOINT_CLIENT_SECRET" \
         --organization "$ORG_ID" \
-        --environment "$ENVIRONMENT" \
+        --environment "$ENV_ID" \
         --isFlex \
         --withProxy \
         --deploymentType hybrid \

@@ -1,0 +1,39 @@
+# ============================================================================
+# POLÍTICAS CORPORATIVAS - DEV / ON-PREMISE / PRIVATE
+# ============================================================================
+# Estas políticas são aplicadas automaticamente em TODAS as APIs privadas
+# deployadas no cluster ON-PREMISE em ambiente DEV
+
+policies:
+  inbound:
+    # Rate Limiting para on-premise
+    - name: "rate-limiting"
+      enabled: true
+      version: "1.3.2"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 1
+      configuration:
+        rateLimits:
+          - timePeriodInMilliseconds: 60000
+            maximumRequests: 2000  # On-premise pode ter limite maior
+        exposeHeaders: true
+        clusterizable: true
+
+    # Message Logging
+    - name: "message-logging-flex"
+      enabled: true
+      version: "1.2.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 2
+      configuration:
+        loggingConfiguration:
+          - itemName: "Corporate Logging - On-Premise"
+            itemData:
+              message: "#[{timestamp: now(), method: attributes.method, path: attributes.requestPath}]"
+              level: "INFO"
+              firstSection: true
+              secondSection: false  # Menos verbose em on-premise
+
+  outbound: []  # Sem políticas outbound obrigatórias para on-premise private
+
+

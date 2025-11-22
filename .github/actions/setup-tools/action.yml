@@ -1,0 +1,72 @@
+name: 'Setup Deployment Tools'
+description: 'Configura ferramentas necessárias para deployment (yq, anypoint-cli-v4, jq)'
+author: 'Crefisa Platform Team'
+
+inputs:
+  install_nodejs:
+    description: 'Se deve instalar Node.js'
+    required: false
+    default: 'true'
+  install_yq:
+    description: 'Se deve instalar yq'
+    required: false
+    default: 'true'
+  install_anypoint_cli:
+    description: 'Se deve instalar Anypoint CLI v4'
+    required: false
+    default: 'true'
+  install_jq:
+    description: 'Se deve instalar jq'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      if: inputs.install_nodejs == 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Setup yq
+      if: inputs.install_yq == 'true'
+      shell: bash
+      run: |
+        if ! command -v yq &> /dev/null; then
+          echo "📦 Instalando yq..."
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          echo "✅ yq instalado"
+        else
+          echo "✅ yq já está instalado"
+        fi
+        yq --version
+
+    - name: Setup Anypoint CLI v4
+      if: inputs.install_anypoint_cli == 'true'
+      shell: bash
+      run: |
+        if ! command -v anypoint-cli-v4 &> /dev/null; then
+          echo "📦 Instalando Anypoint CLI v4..."
+          npm install -g anypoint-cli-v4
+          echo "✅ Anypoint CLI v4 instalado"
+        else
+          echo "✅ Anypoint CLI v4 já está instalado"
+        fi
+        anypoint-cli-v4 --version
+
+    - name: Setup jq
+      if: inputs.install_jq == 'true'
+      shell: bash
+      run: |
+        if ! command -v jq &> /dev/null; then
+          echo "📦 Instalando jq..."
+          sudo apt-get update && sudo apt-get install -y jq
+          echo "✅ jq instalado"
+        else
+          echo "✅ jq já está instalado"
+        fi
+        jq --version
+
+

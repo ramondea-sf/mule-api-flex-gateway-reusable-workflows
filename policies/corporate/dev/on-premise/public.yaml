@@ -1,0 +1,72 @@
+# ============================================================================
+# POLÍTICAS CORPORATIVAS - DEV / ON-PREMISE / PUBLIC (DMZ)
+# ============================================================================
+# Estas políticas são aplicadas automaticamente em TODAS as APIs públicas
+# deployadas no cluster ON-PREMISE em ambiente DEV
+
+policies:
+  inbound:
+    # Rate Limiting mais restritivo para APIs públicas on-premise
+    - name: "rate-limiting"
+      enabled: true
+      version: "1.3.2"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 1
+      configuration:
+        rateLimits:
+          - timePeriodInMilliseconds: 60000
+            maximumRequests: 600
+        exposeHeaders: true
+        clusterizable: true
+
+    # IP Allowlist
+    - name: "ip-allowlist"
+      enabled: true
+      version: "1.3.1"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 2
+      configuration:
+        ips:
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+
+    # Message Logging
+    - name: "message-logging-flex"
+      enabled: true
+      version: "1.2.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 3
+      configuration:
+        loggingConfiguration:
+          - itemName: "Corporate Logging - On-Premise Public"
+            itemData:
+              message: "#[{timestamp: now(), method: attributes.method, path: attributes.requestPath, clientIp: attributes.headers['x-forwarded-for'] default attributes.remoteAddress}]"
+              level: "INFO"
+              firstSection: true
+              secondSection: true
+
+  outbound:
+    # CORS
+    - name: "cors"
+      enabled: true
+      version: "1.2.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 1
+      configuration:
+        publicResource: false
+        supportCredentials: true
+        allowedOrigins:
+          - origin: "https://dev.crefisa.com.br"
+          - origin: "http://localhost:3000"
+        allowedMethods:
+          - method: "GET"
+          - method: "POST"
+          - method: "OPTIONS"
+        allowedHeaders:
+          - header: "Content-Type"
+          - header: "Authorization"
+        exposeHeaders: []
+        maxAge: 1800
+
+

@@ -1,0 +1,91 @@
+# ============================================================================
+# POLÍTICAS CORPORATIVAS - PROD / AWS-ROSA / PRIVATE
+# ============================================================================
+# Estas políticas são aplicadas automaticamente em TODAS as APIs privadas
+# deployadas no cluster AWS-ROSA em ambiente PROD
+#
+# IMPORTANTE: Políticas de PROD são mais restritivas e focadas em segurança
+# e performance
+
+policies:
+  inbound:
+    # Rate Limiting mais restritivo em PROD
+    - name: "rate-limiting"
+      enabled: true
+      version: "1.3.2"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 1
+      configuration:
+        rateLimits:
+          - timePeriodInMilliseconds: 60000
+            maximumRequests: 500  # Mais restritivo que DEV
+        exposeHeaders: true
+        clusterizable: true
+
+    # Client ID Enforcement OBRIGATÓRIO em PROD
+    - name: "client-id-enforcement"
+      enabled: true
+      version: "1.2.5"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 2
+      configuration:
+        credentialsOriginHasHttpBasicAuthenticationHeader: "customExpression"
+        clientIdExpression: "#[attributes.headers['client_id']]"
+        clientSecretExpression: "#[attributes.headers['client_secret']]"
+
+    # Message Logging - apenas INFO em PROD (não DEBUG)
+    - name: "message-logging-flex"
+      enabled: true
+      version: "1.2.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 3
+      configuration:
+        loggingConfiguration:
+          - itemName: "Corporate Logging - PROD"
+            itemData:
+              message: "#[{timestamp: now(), method: attributes.method, path: attributes.requestPath, correlationId: attributes.headers['x-correlation-id'] default uuid()}]"
+              level: "INFO"
+              firstSection: true
+              secondSection: false  # Não logar payload em PROD
+
+    # JSON Threat Protection
+    - name: "json-threat-protection"
+      enabled: true
+      version: "1.1.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 4
+      configuration:
+        maxContainerDepth: 5
+        maxStringLength: 500
+        maxObjectEntries: 50
+        maxArrayElements: 50
+
+    # Header Injection - adicionar headers de segurança
+    - name: "header-injection"
+      enabled: true
+      version: "1.1.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 5
+      configuration:
+        inboundHeaders:
+          - key: "X-Environment"
+            value: "production"
+          - key: "X-Security-Level"
+            value: "high"
+
+  outbound:
+    # Header Removal - remover headers sensíveis do backend
+    - name: "header-removal"
+      enabled: true
+      version: "1.0.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 1
+      configuration:
+        outboundHeaders:
+          - "X-Backend-Secret"
+          - "X-Internal-Token"
+          - "X-Database-Connection"
+          - "Server"
+          - "X-Powered-By"
+
+

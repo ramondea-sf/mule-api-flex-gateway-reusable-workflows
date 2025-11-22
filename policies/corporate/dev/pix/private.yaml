@@ -1,0 +1,55 @@
+# ============================================================================
+# POLÍTICAS CORPORATIVAS - DEV / PIX / PRIVATE
+# ============================================================================
+# Estas políticas são aplicadas automaticamente em TODAS as APIs do cluster PIX
+# em ambiente DEV
+#
+# IMPORTANTE: O cluster PIX é dedicado a transações PIX e possui políticas
+# específicas de segurança e conformidade
+
+policies:
+  inbound:
+    # Rate Limiting mais alto para PIX (alta volumetria)
+    - name: "rate-limiting"
+      enabled: true
+      version: "1.3.2"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 1
+      configuration:
+        rateLimits:
+          - timePeriodInMilliseconds: 60000
+            maximumRequests: 5000  # PIX requer alta capacidade
+        exposeHeaders: true
+        clusterizable: true
+
+    # Message Logging detalhado para auditoria PIX
+    - name: "message-logging-flex"
+      enabled: true
+      version: "1.2.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 2
+      configuration:
+        loggingConfiguration:
+          - itemName: "PIX Audit Logging"
+            itemData:
+              message: "#[{timestamp: now(), method: attributes.method, path: attributes.requestPath, correlationId: attributes.headers['x-correlation-id'] default uuid(), clientIp: attributes.remoteAddress}]"
+              level: "INFO"
+              firstSection: true
+              secondSection: true
+
+    # Header Injection - adicionar headers obrigatórios do PIX
+    - name: "header-injection"
+      enabled: true
+      version: "1.1.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 3
+      configuration:
+        inboundHeaders:
+          - key: "x-pix-cluster"
+            value: "pix-dev"
+          - key: "x-compliance-check"
+            value: "enabled"
+
+  outbound: []
+
+

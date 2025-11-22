@@ -1,0 +1,145 @@
+name: 'Apply API Policies'
+description: 'Aplica políticas de segurança corporativas e customizadas no API Manager'
+author: 'Crefisa Platform Team'
+
+inputs:
+  api_id:
+    description: 'ID da API no API Manager'
+    required: true
+  environment:
+    description: 'Nome do ambiente (dev, hml, prod)'
+    required: true
+  cluster:
+    description: 'Nome do cluster (aws-rosa, on-premise, pix, pj)'
+    required: true
+  is_public:
+    description: 'Se a API é pública (true/false)'
+    required: true
+    default: 'false'
+  anypoint_client_id:
+    description: 'Client ID do Connected App'
+    required: true
+  anypoint_client_secret:
+    description: 'Client Secret do Connected App'
+    required: true
+  working_directory:
+    description: 'Diretório de trabalho (onde estão os arquivos api/)'
+    required: false
+    default: '.'
+
+outputs:
+  policies_applied:
+    description: 'Número de políticas aplicadas'
+    value: ${{ steps.apply-policies.outputs.policies_applied }}
+  status:
+    description: 'Status da aplicação de políticas'
+    value: ${{ steps.apply-policies.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validar inputs
+      shell: bash
+      run: |
+        echo "=================================================="
+        echo "🔍 Validando parâmetros de entrada"
+        echo "=================================================="
+        
+        if [ -z "${{ inputs.api_id }}" ]; then
+          echo "❌ Erro: api_id é obrigatório"
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.environment }}" ]; then
+          echo "❌ Erro: environment é obrigatório"
+          exit 1
+        fi
+        
+        if [ -z "${{ inputs.cluster }}" ]; then
+          echo "❌ Erro: cluster é obrigatório"
+          exit 1
+        fi
+        
+        # Validar cluster
+        case "${{ inputs.cluster }}" in
+          aws-rosa|on-premise|pix|pj)
+            echo "✅ Cluster válido: ${{ inputs.cluster }}"
+            ;;
+          *)
+            echo "❌ Erro: Cluster inválido: ${{ inputs.cluster }}"
+            echo "   Clusters válidos: aws-rosa, on-premise, pix, pj"
+            exit 1
+            ;;
+        esac
+        
+        # Validar is_public
+        case "${{ inputs.is_public }}" in
+          true|false)
+            echo "✅ is_public válido: ${{ inputs.is_public }}"
+            ;;
+          *)
+            echo "❌ Erro: is_public deve ser 'true' ou 'false'"
+            exit 1
+            ;;
+        esac
+        
+        echo ""
+        echo "✅ Todos os parâmetros são válidos"
+        echo ""
+
+    - name: Setup yq
+      shell: bash
+      run: |
+        if ! command -v yq &> /dev/null; then
+          echo "📦 Instalando yq..."
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+          echo "✅ yq instalado"
+        else
+          echo "✅ yq já está instalado"
+          yq --version
+        fi
+
+    - name: Setup Anypoint CLI v4
+      shell: bash
+      run: |
+        if ! command -v anypoint-cli-v4 &> /dev/null; then
+          echo "📦 Instalando Anypoint CLI v4..."
+          npm install -g anypoint-cli-v4
+          echo "✅ Anypoint CLI v4 instalado"
+        else
+          echo "✅ Anypoint CLI v4 já está instalado"
+          anypoint-cli-v4 --version
+        fi
+
+    - name: Aplicar políticas
+      id: apply-policies
+      shell: bash
+      working-directory: ${{ inputs.working_directory }}
+      env:
+        ANYPOINT_CLIENT_ID: ${{ inputs.anypoint_client_id }}
+        ANYPOINT_CLIENT_SECRET: ${{ inputs.anypoint_client_secret }}
+      run: |
+        echo "=================================================="
+        echo "🔒 Aplicando políticas de segurança"
+        echo "=================================================="
+        echo "API ID: ${{ inputs.api_id }}"
+        echo "Ambiente: ${{ inputs.environment }}"
+        echo "Cluster: ${{ inputs.cluster }}"
+        echo "API Pública: ${{ inputs.is_public }}"
+        echo ""
+        
+        # Executar script de aplicação de políticas
+        chmod +x ${{ github.action_path }}/../../../scripts/apply-policies.sh
+        ${{ github.action_path }}/../../../scripts/apply-policies.sh \
+          "${{ inputs.api_id }}" \
+          "${{ inputs.environment }}" \
+          "${{ inputs.cluster }}" \
+          "${{ inputs.is_public }}"
+        
+        # Marcar como sucesso
+        echo "status=success" >> $GITHUB_OUTPUT
+        echo ""
+        echo "✅ Políticas aplicadas com sucesso!"
+
+

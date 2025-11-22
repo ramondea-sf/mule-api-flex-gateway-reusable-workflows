@@ -1,0 +1,141 @@
+# ============================================================================
+# POLÍTICAS CORPORATIVAS - PROD / AWS-ROSA / PUBLIC (DMZ)
+# ============================================================================
+# Estas políticas são aplicadas automaticamente em TODAS as APIs públicas
+# deployadas no cluster AWS-ROSA em ambiente PROD
+#
+# IMPORTANTE: APIs públicas em PROD possuem as políticas mais restritivas
+# de toda a infraestrutura
+
+policies:
+  inbound:
+    # Rate Limiting MUITO restritivo para APIs públicas em PROD
+    - name: "rate-limiting"
+      enabled: true
+      version: "1.3.2"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 1
+      configuration:
+        rateLimits:
+          - timePeriodInMilliseconds: 60000
+            maximumRequests: 100  # Muito restritivo
+        exposeHeaders: true
+        clusterizable: true
+
+    # IP Allowlist - APENAS IPs conhecidos em PROD
+    - name: "ip-allowlist"
+      enabled: true
+      version: "1.3.1"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 2
+      configuration:
+        ips:
+          # IMPORTANTE: Ajustar para IPs reais da empresa
+          - "200.201.202.0/24"  # Range de IP corporativo
+          - "203.204.205.0/24"  # Range de IP de parceiros
+          # NÃO incluir ranges privados ou 0.0.0.0/0 em PROD!
+
+    # Client ID Enforcement OBRIGATÓRIO
+    - name: "client-id-enforcement"
+      enabled: true
+      version: "1.2.5"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 3
+      configuration:
+        credentialsOriginHasHttpBasicAuthenticationHeader: "customExpression"
+        clientIdExpression: "#[attributes.headers['client_id']]"
+        clientSecretExpression: "#[attributes.headers['client_secret']]"
+
+    # Message Logging com informações de segurança
+    - name: "message-logging-flex"
+      enabled: true
+      version: "1.2.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 4
+      configuration:
+        loggingConfiguration:
+          - itemName: "Security Logging - Public API PROD"
+            itemData:
+              message: "#[{timestamp: now(), method: attributes.method, path: attributes.requestPath, clientIp: attributes.headers['x-forwarded-for'] default attributes.remoteAddress, userAgent: attributes.headers['user-agent'], correlationId: attributes.headers['x-correlation-id'] default uuid()}]"
+              level: "WARN"  # WARN em PROD para destacar acessos
+              firstSection: true
+              secondSection: false
+
+    # JSON Threat Protection RESTRITIVO
+    - name: "json-threat-protection"
+      enabled: true
+      version: "1.1.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 5
+      configuration:
+        maxContainerDepth: 3      # Muito restritivo
+        maxStringLength: 200      # Strings pequenas
+        maxObjectEntries: 20      # Poucos campos
+        maxArrayElements: 20      # Arrays pequenos
+
+    # Header Injection - adicionar headers de segurança e rastreamento
+    - name: "header-injection"
+      enabled: true
+      version: "1.1.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 6
+      configuration:
+        inboundHeaders:
+          - key: "X-Environment"
+            value: "production"
+          - key: "X-API-Type"
+            value: "public"
+          - key: "X-Security-Level"
+            value: "maximum"
+          - key: "Strict-Transport-Security"
+            value: "max-age=31536000; includeSubDomains"
+
+  outbound:
+    # CORS RESTRITIVO - apenas domínios específicos
+    - name: "cors"
+      enabled: true
+      version: "1.2.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 1
+      configuration:
+        publicResource: false
+        supportCredentials: true
+        allowedOrigins:
+          # APENAS domínios corporativos em PROD
+          - origin: "https://crefisa.com.br"
+          - origin: "https://www.crefisa.com.br"
+          - origin: "https://app.crefisa.com.br"
+          # NÃO usar * ou localhost em PROD!
+        allowedMethods:
+          - method: "GET"
+          - method: "POST"
+          # Métodos PUT/DELETE/PATCH apenas se necessário
+        allowedHeaders:
+          - header: "Content-Type"
+          - header: "Authorization"
+          - header: "X-Requested-With"
+          - header: "X-Correlation-ID"
+        exposeHeaders:
+          - header: "X-RateLimit-Limit"
+          - header: "X-RateLimit-Remaining"
+          - header: "X-Correlation-ID"
+        maxAge: 600  # Cache menor em PROD
+
+    # Header Removal - remover TODOS os headers internos
+    - name: "header-removal"
+      enabled: true
+      version: "1.0.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 2
+      configuration:
+        outboundHeaders:
+          - "X-Backend-Secret"
+          - "X-Internal-Token"
+          - "X-Database-Connection"
+          - "X-Service-Version"
+          - "Server"
+          - "X-Powered-By"
+          - "X-AspNet-Version"
+          - "X-AspNetMvc-Version"
+
+

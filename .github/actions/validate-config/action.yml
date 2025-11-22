@@ -1,0 +1,142 @@
+name: 'Validate API Configuration'
+description: 'Valida configurações da API e extrai metadados necessários para o deployment'
+author: 'Crefisa Platform Team'
+
+inputs:
+  api_config_path:
+    description: 'Caminho do arquivo de configuração'
+    required: false
+    default: 'api/api-config.yaml'
+  swagger_path_override:
+    description: 'Override do caminho do swagger'
+    required: false
+    default: ''
+  force_update:
+    description: 'Forçar atualização'
+    required: false
+    default: 'false'
+
+outputs:
+  api_name:
+    description: 'Nome da API'
+    value: ${{ steps.parse-config.outputs.api-name }}
+  api_version:
+    description: 'Versão da API'
+    value: ${{ steps.parse-config.outputs.api-version }}
+  cluster:
+    description: 'Cluster de destino'
+    value: ${{ steps.parse-config.outputs.cluster }}
+  is_public:
+    description: 'Se a API é pública'
+    value: ${{ steps.parse-config.outputs.is-public }}
+  should_deploy:
+    description: 'Se deve fazer deploy'
+    value: ${{ steps.check-changes.outputs.should-deploy }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validar e parsear configuração
+      id: parse-config
+      shell: bash
+      run: |
+        CONFIG_FILE="${{ inputs.api_config_path }}"
+        
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "❌ Arquivo $CONFIG_FILE não encontrado!"
+          exit 1
+        fi
+        
+        API_NAME=$(yq eval '.api.name' $CONFIG_FILE)
+        API_VERSION=$(yq eval '.version.current' $CONFIG_FILE)
+        CLUSTER=$(yq eval '.api.destinationCluster' $CONFIG_FILE)
+        IS_PUBLIC=$(yq eval '.api.isPublic' $CONFIG_FILE)
+        SWAGGER_PATH="${{ inputs.swagger_path_override }}"
+        
+        if [ -z "$SWAGGER_PATH" ]; then
+          SWAGGER_PATH=$(yq eval '.api.swaggerPath' $CONFIG_FILE)
+        fi
+        
+        # Validações
+        if [ -z "$API_NAME" ] || [ "$API_NAME" == "null" ]; then
+          echo "❌ Nome da API não configurado!"
+          exit 1
+        fi
+        
+        if ! echo "$API_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+          echo "❌ Versão inválida: $API_VERSION (use SEMVER: X.Y.Z)"
+          exit 1
+        fi
+        
+        if [ ! -f "$SWAGGER_PATH" ]; then
+          echo "❌ Arquivo Swagger não encontrado: $SWAGGER_PATH"
+          exit 1
+        fi
+        
+        echo "api-name=$API_NAME" >> $GITHUB_OUTPUT
+        echo "api-version=$API_VERSION" >> $GITHUB_OUTPUT
+        echo "swagger-path=$SWAGGER_PATH" >> $GITHUB_OUTPUT
+        echo "cluster=$CLUSTER" >> $GITHUB_OUTPUT
+        echo "is-public=$IS_PUBLIC" >> $GITHUB_OUTPUT
+        
+        echo "✅ Configuração válida: $API_NAME v$API_VERSION"
+
+    - name: Validar combinação cluster + isPublic
+      shell: bash
+      run: |
+        CONFIG_FILE="${{ inputs.api_config_path }}"
+        
+        CLUSTER=$(yq eval '.api.destinationCluster' $CONFIG_FILE)
+        IS_PUBLIC=$(yq eval '.api.isPublic' $CONFIG_FILE)
+        
+        echo "=================================================="
+        echo "🔍 Validando configuração de deploy"
+        echo "=================================================="
+        echo "Cluster: $CLUSTER"
+        echo "API Pública: $IS_PUBLIC"
+        echo ""
+        
+        # Validar se PIX/PJ tentam usar DMZ público
+        if [[ ("$CLUSTER" == "pix" || "$CLUSTER" == "pj") && "$IS_PUBLIC" == "true" ]]; then
+          echo "❌ ERRO: Configuração inválida!"
+          echo ""
+          echo "   Cluster '$CLUSTER' não suporta isPublic: true"
+          echo "   Clusters PIX e PJ não possuem gateway DMZ público"
+          echo ""
+          echo "💡 Soluções:"
+          echo "   1. Altere 'isPublic: false' no api-config.yaml, OU"
+          echo "   2. Escolha 'destinationCluster: aws-rosa' ou 'on-premise'"
+          echo ""
+          exit 1
+        fi
+        
+        # Validar se cluster é válido
+        if [[ "$CLUSTER" != "aws-rosa" && "$CLUSTER" != "on-premise" && "$CLUSTER" != "pix" && "$CLUSTER" != "pj" ]]; then
+          echo "❌ ERRO: Cluster inválido: '$CLUSTER'"
+          echo ""
+          echo "💡 Valores válidos: aws-rosa, on-premise, pix, pj"
+          echo ""
+          exit 1
+        fi
+        
+        echo "✅ Configuração de deploy válida!"
+        echo "   Cluster: $CLUSTER"
+        echo "   Tipo: $([ "$IS_PUBLIC" == "true" ] && echo "DMZ (público)" || echo "BACK (privado)")"
+        echo "=================================================="
+
+    - name: Verificar mudanças
+      id: check-changes
+      shell: bash
+      run: |
+        if [ "${{ inputs.force_update }}" == "true" ]; then
+          echo "should-deploy=true" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        if git diff --quiet HEAD~1 HEAD -- api/ app/ 2>/dev/null; then
+          echo "should-deploy=false" >> $GITHUB_OUTPUT
+        else
+          echo "should-deploy=true" >> $GITHUB_OUTPUT
+        fi
+
+

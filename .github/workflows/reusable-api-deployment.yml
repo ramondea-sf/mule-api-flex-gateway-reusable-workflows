@@ -46,119 +46,63 @@ jobs:
     name: Validar Configuração
     runs-on: ubuntu-latest
     outputs:
-      api-name: ${{ steps.parse-config.outputs.api-name }}
-      api-version: ${{ steps.parse-config.outputs.api-version }}
-      should-deploy: ${{ steps.check-changes.outputs.should-deploy }}
+      api-name: ${{ steps.validate.outputs.api_name }}
+      api-version: ${{ steps.validate.outputs.api_version }}
+      should-deploy: ${{ steps.validate.outputs.should_deploy }}
+      cluster: ${{ steps.validate.outputs.cluster }}
+      is-public: ${{ steps.validate.outputs.is_public }}
       
     steps:
-      - name: Checkout
+      - name: Checkout repositório da API
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Checkout repositório de workflows (scripts e políticas)
+        uses: actions/checkout@v4
         with:
-          node-version: '18'
+          repository: ramondea-sf/mule-api-flex-gateway-reusable-workflows
+          ref: main
+          path: .workflow-repo
 
-      - name: Instalar yq
-        run: |
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
+      - name: Setup ferramentas
+        uses: ./.workflow-repo/.github/actions/setup-tools
+        with:
+          install_nodejs: 'true'
+          install_yq: 'true'
+          install_anypoint_cli: 'false'
+          install_jq: 'false'
 
-      - name: Validar e parsear configuração
-        id: parse-config
-        run: |
-          CONFIG_FILE="${{ inputs.api-config-path }}"
-          
-          if [ ! -f "$CONFIG_FILE" ]; then
-            echo "❌ Arquivo $CONFIG_FILE não encontrado!"
-            exit 1
-          fi
-          
-          API_NAME=$(yq eval '.api.name' $CONFIG_FILE)
-          API_VERSION=$(yq eval '.version.current' $CONFIG_FILE)
-          SWAGGER_PATH="${{ inputs.swagger-path-override }}"
-          
-          if [ -z "$SWAGGER_PATH" ]; then
-            SWAGGER_PATH=$(yq eval '.api.swaggerPath' $CONFIG_FILE)
-          fi
-          
-          # Validações
-          if [ -z "$API_NAME" ] || [ "$API_NAME" == "null" ]; then
-            echo "❌ Nome da API não configurado!"
-            exit 1
-          fi
-          
-          if ! echo "$API_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "❌ Versão inválida: $API_VERSION (use SEMVER: X.Y.Z)"
-            exit 1
-          fi
-          
-          if [ ! -f "$SWAGGER_PATH" ]; then
-            echo "❌ Arquivo Swagger não encontrado: $SWAGGER_PATH"
-            exit 1
-          fi
-          
-          echo "api-name=$API_NAME" >> $GITHUB_OUTPUT
-          echo "api-version=$API_VERSION" >> $GITHUB_OUTPUT
-          echo "swagger-path=$SWAGGER_PATH" >> $GITHUB_OUTPUT
-          
-          echo "✅ Configuração válida: $API_NAME v$API_VERSION"
+      - name: Validar configuração
+        id: validate
+        uses: ./.workflow-repo/.github/actions/validate-config
+        with:
+          api_config_path: ${{ inputs.api-config-path }}
+          swagger_path_override: ${{ inputs.swagger-path-override }}
+          force_update: ${{ inputs.force-update }}
 
-      - name: Validar combinação cluster + isPublic
+      - name: Empacotar scripts e políticas corporativas
         run: |
-          CONFIG_FILE="${{ inputs.api-config-path }}"
+          echo "📦 Empacotando scripts e políticas corporativas..."
+          mkdir -p /tmp/workflow-assets
           
-          CLUSTER=$(yq eval '.api.destinationCluster' $CONFIG_FILE)
-          IS_PUBLIC=$(yq eval '.api.isPublic' $CONFIG_FILE)
+          # Copiar scripts
+          cp -r .workflow-repo/scripts /tmp/workflow-assets/
           
-          echo "=================================================="
-          echo "🔍 Validando configuração de deploy"
-          echo "=================================================="
-          echo "Cluster: $CLUSTER"
-          echo "API Pública: $IS_PUBLIC"
-          echo ""
+          # Copiar políticas corporativas
+          cp -r .workflow-repo/policies /tmp/workflow-assets/
           
-          # Validar se PIX/PJ tentam usar DMZ público
-          if [[ ("$CLUSTER" == "pix" || "$CLUSTER" == "pj") && "$IS_PUBLIC" == "true" ]]; then
-            echo "❌ ERRO: Configuração inválida!"
-            echo ""
-            echo "   Cluster '$CLUSTER' não suporta isPublic: true"
-            echo "   Clusters PIX e PJ não possuem gateway DMZ público"
-            echo ""
-            echo "💡 Soluções:"
-            echo "   1. Altere 'isPublic: false' no api-config.yaml, OU"
-            echo "   2. Escolha 'destinationCluster: aws-rosa' ou 'on-premise'"
-            echo ""
-            exit 1
-          fi
+          # Tornar scripts executáveis
+          chmod +x /tmp/workflow-assets/scripts/*.sh
           
-          # Validar se cluster é válido
-          if [[ "$CLUSTER" != "aws-rosa" && "$CLUSTER" != "on-premise" && "$CLUSTER" != "pix" && "$CLUSTER" != "pj" ]]; then
-            echo "❌ ERRO: Cluster inválido: '$CLUSTER'"
-            echo ""
-            echo "💡 Valores válidos: aws-rosa, on-premise, pix, pj"
-            echo ""
-            exit 1
-          fi
-          
-          echo "✅ Configuração de deploy válida!"
-          echo "   Cluster: $CLUSTER"
-          echo "   Tipo: $([ "$IS_PUBLIC" == "true" ] && echo "DMZ (público)" || echo "BACK (privado)")"
-          echo "=================================================="
+          echo "✅ Assets empacotados com sucesso!"
+          ls -la /tmp/workflow-assets/scripts/
+          ls -la /tmp/workflow-assets/policies/
 
-      - name: Verificar mudanças
-        id: check-changes
-        run: |
-          if [ "${{ inputs.force-update }}" == "true" ]; then
-            echo "should-deploy=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          if git diff --quiet HEAD~1 HEAD -- api/ app/ 2>/dev/null; then
-            echo "should-deploy=false" >> $GITHUB_OUTPUT
-          else
-            echo "should-deploy=true" >> $GITHUB_OUTPUT
-          fi
+      - name: Upload workflow assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflow-assets
+          path: /tmp/workflow-assets/
+          retention-days: 1
 
 
   publish-to-exchange:
@@ -168,25 +112,41 @@ jobs:
     if: needs.validate.outputs.should-deploy == 'true'
     
     steps:
-      - name: Checkout repositório consumidor
+      - name: Checkout repositório da API
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4 
+      - name: Checkout repositório de workflows
+        uses: actions/checkout@v4
         with:
-          node-version: '18'
+          repository: ramondea-sf/mule-api-flex-gateway-reusable-workflows
+          ref: main
+          path: .workflow-repo
 
-      - name: Instalar Anypoint CLI
-        run: npm install -g anypoint-cli-v4
+      - name: Setup ferramentas
+        uses: ./.workflow-repo/.github/actions/setup-tools
+        with:
+          install_nodejs: 'true'
+          install_yq: 'true'
+          install_anypoint_cli: 'true'
+          install_jq: 'false'
+
+      - name: Download workflow assets
+        uses: actions/download-artifact@v4
+        with:
+          name: workflow-assets
+          path: /tmp/workflow-assets/
 
       - name: Publicar no Exchange
-        uses: ramondea-sf/mule-api-flex-gateway-reusable-workflows/.github/actions/publish-exchange@main
-        with:
-          api-name: ${{ needs.validate.outputs.api-name }}
-          api-version: ${{ needs.validate.outputs.api-version }}
-          environment: ${{ inputs.environment }}
-          client-id: ${{ secrets.ANYPOINT_CLIENT_ID }}
-          client-secret: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+        env:
+          ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
+          ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+        run: |
+          # Usar script empacotado
+          chmod +x /tmp/workflow-assets/scripts/publish-to-exchange.sh
+          /tmp/workflow-assets/scripts/publish-to-exchange.sh \
+            "${{ needs.validate.outputs.api-name }}" \
+            "${{ needs.validate.outputs.api-version }}" \
+            "${{ inputs.environment }}"
 
       - name: Upload Exchange Asset Info
         uses: actions/upload-artifact@v4
@@ -208,15 +168,29 @@ jobs:
       exposed-path: ${{ steps.get-api-id.outputs.exposed-path }}
     
     steps:
-      - name: Checkout repositório consumidor
+      - name: Checkout repositório da API
         uses: actions/checkout@v4
 
+      - name: Checkout repositório de workflows
+        uses: actions/checkout@v4
+        with:
+          repository: ramondea-sf/mule-api-flex-gateway-reusable-workflows
+          ref: main
+          path: .workflow-repo
+
       - name: Setup ferramentas
-        run: |
-          npm install -g anypoint-cli-v4
-          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-          sudo chmod +x /usr/local/bin/yq
-          sudo apt-get update && sudo apt-get install -y jq
+        uses: ./.workflow-repo/.github/actions/setup-tools
+        with:
+          install_nodejs: 'true'
+          install_yq: 'true'
+          install_anypoint_cli: 'true'
+          install_jq: 'true'
+
+      - name: Download workflow assets
+        uses: actions/download-artifact@v4
+        with:
+          name: workflow-assets
+          path: /tmp/workflow-assets/
 
       - name: Download Exchange Asset Info
         uses: actions/download-artifact@v4
@@ -224,14 +198,47 @@ jobs:
           name: exchange-info
           path: /tmp/
 
+      - name: Obter configuração do Gateway
+        env:
+          ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
+          ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+        run: |
+          # Ler informações do Exchange
+          ASSET_VERSION=$(cat /tmp/exchange-version.txt)
+          
+          # Ler configurações
+          ORG_ID=$(yq eval '.organizationId' api/api-config.yaml)
+          CLUSTER=$(yq eval '.api.destinationCluster' api/api-config.yaml)
+          IS_PUBLIC=$(yq eval '.api.isPublic' api/api-config.yaml)
+          
+          # Executar script de obtenção de gateway config
+          chmod +x /tmp/workflow-assets/scripts/get-gateway-config.sh
+          /tmp/workflow-assets/scripts/get-gateway-config.sh \
+            "${{ inputs.environment }}" \
+            "$CLUSTER" \
+            "$IS_PUBLIC" \
+            "$ORG_ID" \
+            "$ASSET_VERSION"
+
       - name: Deploy API no API Manager
-        uses: ramondea-sf/mule-api-flex-gateway-reusable-workflows/.github/actions/deploy-api-manager@main
-        with:
-          api-name: ${{ needs.validate.outputs.api-name }}
-          api-version: ${{ needs.validate.outputs.api-version }}
-          environment: ${{ inputs.environment }}
-          client-id: ${{ secrets.ANYPOINT_CLIENT_ID }}
-          client-secret: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+        env:
+          ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
+          ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+        run: |
+          # Ler informações necessárias
+          GATEWAY_ID=$(cat /tmp/gateway-id.txt)
+          GATEWAY_VERSION=$(cat /tmp/gateway-version.txt)
+          GATEWAY_LABEL=$(cat /tmp/gateway-label.txt)
+          
+          # Executar script de deploy
+          chmod +x /tmp/workflow-assets/scripts/deploy-api.sh
+          /tmp/workflow-assets/scripts/deploy-api.sh \
+            "${{ needs.validate.outputs.api-name }}" \
+            "${{ needs.validate.outputs.api-version }}" \
+            "${{ inputs.environment }}" \
+            "$GATEWAY_ID" \
+            "$GATEWAY_VERSION" \
+            "$GATEWAY_LABEL"
 
       - name: Obter API ID
         id: get-api-id
@@ -251,10 +258,95 @@ jobs:
             /tmp/deployed-version.txt
           retention-days: 1
 
+  apply-policies:
+    name: Aplicar Políticas de Segurança
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-api]
+    if: needs.validate.outputs.should-deploy == 'true'
+    
+    steps:
+      - name: Checkout repositório da API
+        uses: actions/checkout@v4
+
+      - name: Checkout repositório de workflows
+        uses: actions/checkout@v4
+        with:
+          repository: ramondea-sf/mule-api-flex-gateway-reusable-workflows
+          ref: main
+          path: .workflow-repo
+
+      - name: Setup ferramentas
+        uses: ./.workflow-repo/.github/actions/setup-tools
+        with:
+          install_nodejs: 'true'
+          install_yq: 'true'
+          install_anypoint_cli: 'true'
+          install_jq: 'true'
+
+      - name: Download workflow assets (scripts e políticas corporativas)
+        uses: actions/download-artifact@v4
+        with:
+          name: workflow-assets
+          path: /tmp/workflow-assets/
+
+      - name: Download API Info
+        uses: actions/download-artifact@v4
+        with:
+          name: api-info
+          path: /tmp/
+
+      - name: Preparar workspace com políticas corporativas
+        run: |
+          echo "=================================================="
+          echo "📋 Preparando workspace com políticas corporativas"
+          echo "=================================================="
+          
+          # Criar diretório de políticas
+          mkdir -p policies
+          
+          # Copiar políticas corporativas dos assets
+          if [ -d "/tmp/workflow-assets/policies/corporate" ]; then
+            cp -r /tmp/workflow-assets/policies/corporate policies/
+            echo "✅ Políticas corporativas disponibilizadas com sucesso!"
+            
+            # Listar políticas disponíveis
+            echo ""
+            echo "📁 Políticas corporativas disponíveis:"
+            find policies/corporate -type f -name "*.yaml" 2>/dev/null | sort || echo "Nenhuma encontrada"
+          else
+            echo "⚠️  Políticas corporativas não encontradas nos assets"
+            echo "   Continuando sem políticas corporativas..."
+          fi
+          echo ""
+
+      - name: Aplicar políticas
+        env:
+          ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
+          ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+        run: |
+          API_ID=$(cat /tmp/api-id.txt)
+          
+          echo "=================================================="
+          echo "🔒 Aplicando Políticas de Segurança"
+          echo "=================================================="
+          echo "API ID: $API_ID"
+          echo "Ambiente: ${{ inputs.environment }}"
+          echo "Cluster: ${{ needs.validate.outputs.cluster }}"
+          echo "API Pública: ${{ needs.validate.outputs.is-public }}"
+          echo ""
+          
+          # Executar script de aplicação de políticas
+          chmod +x /tmp/workflow-assets/scripts/apply-policies.sh
+          /tmp/workflow-assets/scripts/apply-policies.sh \
+            "$API_ID" \
+            "${{ inputs.environment }}" \
+            "${{ needs.validate.outputs.cluster }}" \
+            "${{ needs.validate.outputs.is-public }}"
+
   notify:
     name: Notificar Resultado
     runs-on: ubuntu-latest
-    needs: [validate, deploy-api]
+    needs: [validate, deploy-api, apply-policies]
     if: always()
     
     steps:
@@ -265,8 +357,15 @@ jobs:
           echo "**API:** ${{ needs.validate.outputs.api-name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Versão:** ${{ needs.validate.outputs.api-version }}" >> $GITHUB_STEP_SUMMARY
           echo "**Ambiente:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Status:** ${{ needs.deploy-api.result == 'success' && '✅ Sucesso' || '❌ Falha' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ needs.validate.outputs.cluster }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tipo:** ${{ needs.validate.outputs.is-public == 'true' && 'Pública (DMZ)' || 'Privada' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Path exposto:** ${{ needs.deploy-api.outputs.exposed-path }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Status dos Jobs" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deploy:** ${{ needs.deploy-api.result == 'success' && '✅ Sucesso' || '❌ Falha' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Políticas:** ${{ needs.apply-policies.result == 'success' && '✅ Sucesso' || needs.apply-policies.result == 'skipped' && '⏭️ Pulado' || '❌ Falha' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Detalhes da API" >> $GITHUB_STEP_SUMMARY
+          echo "**Path exposto:** \`${{ needs.deploy-api.outputs.exposed-path }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "**API ID:** ${{ needs.deploy-api.outputs.api-id }}" >> $GITHUB_STEP_SUMMARY
 

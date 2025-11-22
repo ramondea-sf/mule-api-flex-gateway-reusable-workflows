@@ -162,13 +162,30 @@ apply_policy() {
     
     CMD="$CMD \"$API_ID\" \"$POLICY_NAME\""
     
+    # Mostrar comando (mascarando credenciais)
+    echo "     🔍 Executando:"
+    echo "     anypoint-cli-v4 api-mgr:policy:apply \\"
+    echo "       --organization $ORG_ID \\"
+    echo "       --environment $ENV_ID \\"
+    echo "       --groupId $POLICY_GROUP_ID \\"
+    echo "       --policyVersion $POLICY_VERSION \\"
+    echo "       --pointcut '[{\"methodRegex\":\".*\",\"uriTemplateRegex\":\".*\"}]' \\"
+    if [ -n "$COMPACT_CONFIG" ] && [ "$COMPACT_CONFIG" != "null" ] && [ "$COMPACT_CONFIG" != "{}" ]; then
+        echo "       --config '$COMPACT_CONFIG' \\"
+    fi
+    echo "       --output json \\"
+    echo "       $API_ID $POLICY_NAME"
+    echo ""
+    
     set +e
     APPLY_RESULT=$(eval $CMD 2>&1)
     APPLY_STATUS=$?
     set -e
     
     if [ $APPLY_STATUS -ne 0 ]; then
-        echo "     ❌ ERRO"
+        echo "     ❌ ERRO:"
+        echo "$APPLY_RESULT"
+        echo ""
         return 1
     else
         echo "     ✅ Aplicada"

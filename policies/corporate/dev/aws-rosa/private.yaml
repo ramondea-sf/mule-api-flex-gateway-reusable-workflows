@@ -1,29 +1,28 @@
-# ============================================================================
-# POLÍTICAS CORPORATIVAS - DEV / AWS-ROSA / PRIVATE
-# ============================================================================
-# Estas políticas são aplicadas automaticamente em TODAS as APIs privadas
-# deployadas no cluster AWS-ROSA em ambiente DEV
-#
-# IMPORTANTE: Estas políticas são OBRIGATÓRIAS e aplicadas antes das
-# políticas customizadas definidas em cada API
+# Políticas Corporativas - DEV / AWS-ROSA / PRIVATE
 
 policies:
   inbound:
-    # Message Logging corporativo
-    - name: "message-logging-flex"
-      enabled: true
-      version: "1.2.0"
-      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
-      order: 1
-      configuration:
+    - policyRef:
+        name: "rate-limiting"
+        version: "1.3.2"
+        groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      config:
+        rateLimits:
+          - timePeriodInMilliseconds: 60000
+            maximumRequests: 1000
+        exposeHeaders: true
+
+    - policyRef:
+        name: "message-logging"
+        version: "1.2.0"
+        groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      config:
         loggingConfiguration:
           - itemName: "Corporate Logging"
             itemData:
-              message: "#[{timestamp: now(), method: attributes.method, path: attributes.requestPath, clientIp: attributes.headers['x-forwarded-for'] default attributes.remoteAddress}]"
+              message: "#[attributes]"
               level: "INFO"
               firstSection: true
               secondSection: true
 
-  outbound:
-
-
+  outbound: []

@@ -203,22 +203,24 @@ apply_policy() {
     POINTCUT_JSON='[{"methodRegex":".*","uriTemplateRegex":".*"}]'
     CMD="$CMD --pointcut '$POINTCUT_JSON'"
     
-    # Adicionar configuração se fornecida
+    # Adicionar configuração se fornecida via arquivo
     HAS_CONFIG=false
+    CONFIG_FILE_PATH=""
+    
     if [ -n "$POLICY_CONFIG" ] && [ "$POLICY_CONFIG" != "null" ] && [ "$POLICY_CONFIG" != "{}" ]; then
-        # Compactar JSON para uma linha
-        COMPACT_CONFIG=$(echo "$POLICY_CONFIG" | jq -c . 2>/dev/null || echo "$POLICY_CONFIG")
-        
-        # Verificar se o JSON é válido
-        if echo "$COMPACT_CONFIG" | jq empty 2>/dev/null; then
-            # IMPORTANTE: Escapar aspas duplas para o shell
-            # Converter " para \" para o comando funcionar corretamente
-            ESCAPED_CONFIG=$(echo "$COMPACT_CONFIG" | sed 's/"/\\"/g')
-            CMD="$CMD --config '$ESCAPED_CONFIG'"
+        # Validar JSON
+        if echo "$POLICY_CONFIG" | jq empty 2>/dev/null; then
+            # Criar arquivo temporário com a configuração
+            CONFIG_FILE_PATH="/tmp/policy-config-${API_ID}-${POLICY_NAME}-$$.json"
+            echo "$POLICY_CONFIG" | jq . > "$CONFIG_FILE_PATH"
+            
+            CMD="$CMD --configFile '$CONFIG_FILE_PATH'"
             HAS_CONFIG=true
+            
+            echo "   📄 Arquivo de configuração criado: $CONFIG_FILE_PATH"
         else
             echo "   ⚠️  AVISO: Configuração JSON inválida, tentando aplicar sem config"
-            echo "   JSON problemático: $COMPACT_CONFIG"
+            echo "   JSON problemático: $POLICY_CONFIG"
         fi
     fi
     
@@ -239,19 +241,16 @@ apply_policy() {
     DISPLAY_CMD="$DISPLAY_CMD --pointcut '$POINTCUT_JSON'"
     
     if [ "$HAS_CONFIG" = true ]; then
-        DISPLAY_CMD="$DISPLAY_CMD --config '$ESCAPED_CONFIG'"
-    fi
-    
-    DISPLAY_CMD="$DISPLAY_CMD \"$API_ID\" \"$POLICY_NAME\""
-    
-    echo "$DISPLAY_CMD"
-    echo ""
-    
-    if [ "$HAS_CONFIG" = true ]; then
-        echo "   📝 Configuração JSON (com aspas escapadas):"
-        echo "   $ESCAPED_CONFIG"
+        DISPLAY_CMD="$DISPLAY_CMD --configFile '$CONFIG_FILE_PATH'"
+        echo "$DISPLAY_CMD \"$API_ID\" \"$POLICY_NAME\""
         echo ""
+        echo "   📝 Conteúdo do arquivo de configuração:"
+        cat "$CONFIG_FILE_PATH" | jq . 2>/dev/null || cat "$CONFIG_FILE_PATH"
+    else
+        echo "$DISPLAY_CMD \"$API_ID\" \"$POLICY_NAME\""
     fi
+    
+    echo ""
     
     # Executar comando
     echo "   🚀 Executando comando..."
@@ -293,6 +292,9 @@ apply_policy() {
             echo ""
         fi
         
+        # Limpar arquivo temporário
+        [ -n "$CONFIG_FILE_PATH" ] && [ -f "$CONFIG_FILE_PATH" ] && rm -f "$CONFIG_FILE_PATH"
+        
         return 1
     else
         echo "   ✅ Política aplicada com sucesso!"
@@ -308,6 +310,9 @@ apply_policy() {
         if [ -n "$NEW_POLICY_ID" ]; then
             echo "   📋 Policy ID aplicada: $NEW_POLICY_ID"
         fi
+        
+        # Limpar arquivo temporário
+        [ -n "$CONFIG_FILE_PATH" ] && [ -f "$CONFIG_FILE_PATH" ] && rm -f "$CONFIG_FILE_PATH"
     fi
     
     return 0

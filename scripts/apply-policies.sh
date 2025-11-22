@@ -211,7 +211,10 @@ apply_policy() {
         
         # Verificar se o JSON é válido
         if echo "$COMPACT_CONFIG" | jq empty 2>/dev/null; then
-            CMD="$CMD --config '$COMPACT_CONFIG'"
+            # IMPORTANTE: Escapar aspas duplas para o shell
+            # Converter " para \" para o comando funcionar corretamente
+            ESCAPED_CONFIG=$(echo "$COMPACT_CONFIG" | sed 's/"/\\"/g')
+            CMD="$CMD --config '$ESCAPED_CONFIG'"
             HAS_CONFIG=true
         else
             echo "   ⚠️  AVISO: Configuração JSON inválida, tentando aplicar sem config"
@@ -236,13 +239,19 @@ apply_policy() {
     DISPLAY_CMD="$DISPLAY_CMD --pointcut '$POINTCUT_JSON'"
     
     if [ "$HAS_CONFIG" = true ]; then
-        DISPLAY_CMD="$DISPLAY_CMD --config '$COMPACT_CONFIG'"
+        DISPLAY_CMD="$DISPLAY_CMD --config '$ESCAPED_CONFIG'"
     fi
     
     DISPLAY_CMD="$DISPLAY_CMD \"$API_ID\" \"$POLICY_NAME\""
     
     echo "$DISPLAY_CMD"
     echo ""
+    
+    if [ "$HAS_CONFIG" = true ]; then
+        echo "   📝 Configuração JSON (com aspas escapadas):"
+        echo "   $ESCAPED_CONFIG"
+        echo ""
+    fi
     
     # Executar comando
     echo "   🚀 Executando comando..."

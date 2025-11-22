@@ -134,7 +134,7 @@ echo "=================================================="
 echo "🔨 PASSO 4: Processar e aplicar políticas"
 echo "=================================================="
 
-# Função para aplicar uma política
+# Função para aplicar/atualizar uma política
 apply_policy() {
     local POLICY_NAME=$1
     local POLICY_GROUP_ID=$2
@@ -143,39 +143,59 @@ apply_policy() {
     
     echo "  📝 $POLICY_NAME v$POLICY_VERSION"
     
-    CMD="anypoint-cli-v4 api-mgr:policy:apply"
-    CMD="$CMD --client_id \"$ANYPOINT_CLIENT_ID\""
-    CMD="$CMD --client_secret \"$ANYPOINT_CLIENT_SECRET\""
-    CMD="$CMD --organization \"$ORG_ID\""
-    CMD="$CMD --environment \"$ENV_ID\""
-    CMD="$CMD --groupId \"$POLICY_GROUP_ID\""
-    CMD="$CMD --policyVersion \"$POLICY_VERSION\""
-    CMD="$CMD --pointcut '[{\"methodRegex\":\".*\",\"uriTemplateRegex\":\".*\"}]'"
-    CMD="$CMD --output json"
+    # Verificar se política já existe
+    EXISTING_POLICY=$(echo "$EXISTING_POLICIES" | jq -c ".[] | select(.template.assetId==\"$POLICY_NAME\")" 2>/dev/null | head -n 1)
     
+    # Preparar config
+    COMPACT_CONFIG=""
     if [ -n "$POLICY_CONFIG" ] && [ "$POLICY_CONFIG" != "null" ] && [ "$POLICY_CONFIG" != "{}" ]; then
         COMPACT_CONFIG=$(echo "$POLICY_CONFIG" | jq -c . 2>/dev/null || echo "$POLICY_CONFIG")
-        if echo "$COMPACT_CONFIG" | jq empty 2>/dev/null; then
-            CMD="$CMD --config '$COMPACT_CONFIG'"
+        if ! echo "$COMPACT_CONFIG" | jq empty 2>/dev/null; then
+            COMPACT_CONFIG=""
         fi
     fi
     
-    CMD="$CMD \"$API_ID\" \"$POLICY_NAME\""
-    
-    # Mostrar comando (mascarando credenciais)
-    echo "     🔍 Executando:"
-    echo "     anypoint-cli-v4 api-mgr:policy:apply \\"
-    echo "       --organization $ORG_ID \\"
-    echo "       --environment $ENV_ID \\"
-    echo "       --groupId $POLICY_GROUP_ID \\"
-    echo "       --policyVersion $POLICY_VERSION \\"
-    echo "       --pointcut '[{\"methodRegex\":\".*\",\"uriTemplateRegex\":\".*\"}]' \\"
-    if [ -n "$COMPACT_CONFIG" ] && [ "$COMPACT_CONFIG" != "null" ] && [ "$COMPACT_CONFIG" != "{}" ]; then
-        echo "       --config '$COMPACT_CONFIG' \\"
+    if [ -n "$EXISTING_POLICY" ] && [ "$EXISTING_POLICY" != "null" ]; then
+        # Política existe - usar EDIT
+        POLICY_INSTANCE_ID=$(echo "$EXISTING_POLICY" | jq -r '.id' 2>/dev/null)
+        echo "     ↻ Atualizando (ID: $POLICY_INSTANCE_ID)"
+        
+        CMD="anypoint-cli-v4 api-mgr:policy:edit"
+        CMD="$CMD --client_id \"$ANYPOINT_CLIENT_ID\""
+        CMD="$CMD --client_secret \"$ANYPOINT_CLIENT_SECRET\""
+        CMD="$CMD --organization \"$ORG_ID\""
+        CMD="$CMD --environment \"$ENV_ID\""
+        CMD="$CMD --groupId \"$POLICY_GROUP_ID\""
+        CMD="$CMD --policyVersion \"$POLICY_VERSION\""
+        CMD="$CMD --pointcut '[{\"methodRegex\":\".*\",\"uriTemplateRegex\":\".*\"}]'"
+        CMD="$CMD --output json"
+        
+        if [ -n "$COMPACT_CONFIG" ]; then
+            CMD="$CMD --config '$COMPACT_CONFIG'"
+        fi
+        
+        CMD="$CMD \"$API_ID\" \"$POLICY_INSTANCE_ID\""
+        
+    else
+        # Política não existe - usar APPLY
+        echo "     + Criando nova"
+        
+        CMD="anypoint-cli-v4 api-mgr:policy:apply"
+        CMD="$CMD --client_id \"$ANYPOINT_CLIENT_ID\""
+        CMD="$CMD --client_secret \"$ANYPOINT_CLIENT_SECRET\""
+        CMD="$CMD --organization \"$ORG_ID\""
+        CMD="$CMD --environment \"$ENV_ID\""
+        CMD="$CMD --groupId \"$POLICY_GROUP_ID\""
+        CMD="$CMD --policyVersion \"$POLICY_VERSION\""
+        CMD="$CMD --pointcut '[{\"methodRegex\":\".*\",\"uriTemplateRegex\":\".*\"}]'"
+        CMD="$CMD --output json"
+        
+        if [ -n "$COMPACT_CONFIG" ]; then
+            CMD="$CMD --config '$COMPACT_CONFIG'"
+        fi
+        
+        CMD="$CMD \"$API_ID\" \"$POLICY_NAME\""
     fi
-    echo "       --output json \\"
-    echo "       $API_ID $POLICY_NAME"
-    echo ""
     
     set +e
     APPLY_RESULT=$(eval $CMD 2>&1)
@@ -188,7 +208,7 @@ apply_policy() {
         echo ""
         return 1
     else
-        echo "     ✅ Aplicada"
+        echo "     ✅ Sucesso"
     fi
     
     return 0

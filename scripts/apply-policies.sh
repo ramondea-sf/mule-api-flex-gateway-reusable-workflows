@@ -162,6 +162,31 @@ apply_policy() {
     
     echo "   🔨 Aplicando nova política..."
     
+    # Mostrar todos os parâmetros recebidos
+    echo ""
+    echo "   📋 DEBUG - Parâmetros Recebidos:"
+    echo "   ================================"
+    echo "   POLICY_NAME: $POLICY_NAME"
+    echo "   POLICY_GROUP_ID: $POLICY_GROUP_ID"
+    echo "   POLICY_VERSION: $POLICY_VERSION"
+    echo "   POLICY_ORDER: $POLICY_ORDER"
+    echo "   POLICY_TYPE: $POLICY_TYPE"
+    echo "   API_ID: $API_ID"
+    echo "   ORG_ID: $ORG_ID"
+    echo "   ENV_ID: $ENV_ID"
+    echo ""
+    
+    # Mostrar configuração (se houver)
+    if [ -n "$POLICY_CONFIG" ] && [ "$POLICY_CONFIG" != "null" ] && [ "$POLICY_CONFIG" != "{}" ]; then
+        echo "   📝 Configuração da Política (YAML→JSON):"
+        echo "$POLICY_CONFIG" | jq . 2>/dev/null || echo "$POLICY_CONFIG"
+        echo ""
+    else
+        echo "   ⚠️  Nenhuma configuração fornecida para esta política"
+        echo "   ⚠️  Se a política requer configuração obrigatória, o comando falhará!"
+        echo ""
+    fi
+    
     # Construir comando com sintaxe correta
     # Sintaxe: api-mgr:policy:apply [flags] <apiInstanceId> <policyId>
     CMD="anypoint-cli-v4 api-mgr:policy:apply"
@@ -175,37 +200,104 @@ apply_policy() {
     
     # Adicionar pointcut (obrigatório para definir onde a política se aplica)
     # O pointcut define os métodos e URIs onde a política será aplicada
-    CMD="$CMD --pointcut '{\"methodRegex\":\".*\",\"uriTemplateRegex\":\".*\"}'"
+    POINTCUT_JSON='[{"methodRegex":".*","uriTemplateRegex":".*"}]'
+    CMD="$CMD --pointcut '$POINTCUT_JSON'"
     
     # Adicionar configuração se fornecida
+    HAS_CONFIG=false
     if [ -n "$POLICY_CONFIG" ] && [ "$POLICY_CONFIG" != "null" ] && [ "$POLICY_CONFIG" != "{}" ]; then
-        # Compactar JSON para uma linha e escapar aspas
+        # Compactar JSON para uma linha
         COMPACT_CONFIG=$(echo "$POLICY_CONFIG" | jq -c . 2>/dev/null || echo "$POLICY_CONFIG")
-        CMD="$CMD --config '$COMPACT_CONFIG'"
+        
+        # Verificar se o JSON é válido
+        if echo "$COMPACT_CONFIG" | jq empty 2>/dev/null; then
+            CMD="$CMD --config '$COMPACT_CONFIG'"
+            HAS_CONFIG=true
+        else
+            echo "   ⚠️  AVISO: Configuração JSON inválida, tentando aplicar sem config"
+            echo "   JSON problemático: $COMPACT_CONFIG"
+        fi
     fi
     
     # Adicionar API ID e Policy ID (asset name) como argumentos posicionais
     CMD="$CMD \"$API_ID\" \"$POLICY_NAME\""
     
-    # Debug: mostrar comando (sem credenciais)
-    echo "   🔍 Comando: api-mgr:policy:apply --groupId $POLICY_GROUP_ID --policyVersion $POLICY_VERSION $API_ID $POLICY_NAME"
+    # Mostrar comando completo (mascarando credenciais)
+    echo "   📋 DEBUG - Comando Completo a Executar:"
+    echo "   ========================================"
+    DISPLAY_CMD="anypoint-cli-v4 api-mgr:policy:apply"
+    DISPLAY_CMD="$DISPLAY_CMD --client_id \"***\""
+    DISPLAY_CMD="$DISPLAY_CMD --client_secret \"***\""
+    DISPLAY_CMD="$DISPLAY_CMD --organization \"$ORG_ID\""
+    DISPLAY_CMD="$DISPLAY_CMD --environment \"$ENV_ID\""
+    DISPLAY_CMD="$DISPLAY_CMD --groupId \"$POLICY_GROUP_ID\""
+    DISPLAY_CMD="$DISPLAY_CMD --policyVersion \"$POLICY_VERSION\""
+    DISPLAY_CMD="$DISPLAY_CMD --output json"
+    DISPLAY_CMD="$DISPLAY_CMD --pointcut '$POINTCUT_JSON'"
+    
+    if [ "$HAS_CONFIG" = true ]; then
+        DISPLAY_CMD="$DISPLAY_CMD --config '$COMPACT_CONFIG'"
+    fi
+    
+    DISPLAY_CMD="$DISPLAY_CMD \"$API_ID\" \"$POLICY_NAME\""
+    
+    echo "$DISPLAY_CMD"
+    echo ""
     
     # Executar comando
+    echo "   🚀 Executando comando..."
     set +e
     APPLY_RESULT=$(eval $CMD 2>&1)
     APPLY_STATUS=$?
     set -e
     
+    echo ""
     if [ $APPLY_STATUS -ne 0 ]; then
-        echo "   ❌ Erro ao aplicar política"
-        echo "   Detalhes: $APPLY_RESULT"
+        echo "   ❌ ERRO ao aplicar política!"
+        echo ""
+        echo "   📋 Detalhes do Erro:"
+        echo "   ===================="
+        echo "$APPLY_RESULT" | head -n 50  # Limitar para não poluir muito
+        echo ""
+        echo "   💡 Possíveis Causas:"
+        echo "   • Política requer configuração obrigatória (verifique docs da política)"
+        echo "   • JSON de configuração mal formatado"
+        echo "   • Group ID ou Policy Version incorretos"
+        echo "   • Política não existe no Exchange"
+        echo "   • Permissões insuficientes do Connected App"
+        echo ""
+        
+        # Tentar identificar erro específico
+        if echo "$APPLY_RESULT" | grep -qi "schema"; then
+            echo "   ⚠️  ERRO DE SCHEMA DETECTADO!"
+            echo "   Esta política provavelmente requer configuração obrigatória."
+            echo "   Verifique se a configuração está correta no arquivo YAML."
+            echo ""
+        fi
+        
+        if echo "$APPLY_RESULT" | grep -qi "not found"; then
+            echo "   ⚠️  POLÍTICA NÃO ENCONTRADA!"
+            echo "   Verifique:"
+            echo "   • Policy Name: $POLICY_NAME"
+            echo "   • Group ID: $POLICY_GROUP_ID"
+            echo "   • Version: $POLICY_VERSION"
+            echo ""
+        fi
+        
         return 1
     else
         echo "   ✅ Política aplicada com sucesso!"
+        echo ""
+        
+        # Mostrar resultado completo
+        echo "   📋 Resposta da API:"
+        echo "$APPLY_RESULT" | jq . 2>/dev/null || echo "$APPLY_RESULT"
+        echo ""
+        
         # Tentar extrair ID da política aplicada
         NEW_POLICY_ID=$(echo "$APPLY_RESULT" | jq -r '.id // empty' 2>/dev/null)
         if [ -n "$NEW_POLICY_ID" ]; then
-            echo "   📋 Policy ID: $NEW_POLICY_ID"
+            echo "   📋 Policy ID aplicada: $NEW_POLICY_ID"
         fi
     fi
     

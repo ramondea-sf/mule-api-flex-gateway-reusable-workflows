@@ -76,7 +76,7 @@ POLICY_COUNT=$(echo "$EXISTING_POLICIES" | jq 'length' 2>/dev/null || echo "0")
 echo "📊 Políticas existentes: $POLICY_COUNT"
 
 if [ "$POLICY_COUNT" != "0" ]; then
-    echo "$EXISTING_POLICIES" | jq -r '.[] | "   - \(.template.assetId) v\(.template.assetVersion) (ID: \(.id), Order: \(.order // "N/A"))"' 2>/dev/null || true
+    echo "$EXISTING_POLICIES" | jq -r '.[] | "   - \(.\"Asset ID\") v\(.\"Asset Version\") (ID: \(.ID))"' 2>/dev/null || true
 fi
 echo ""
 
@@ -144,7 +144,7 @@ apply_policy() {
     echo "  📝 $POLICY_NAME v$POLICY_VERSION"
     
     # Verificar se política já existe
-    EXISTING_POLICY=$(echo "$EXISTING_POLICIES" | jq -c ".[] | select(.template.assetId==\"$POLICY_NAME\")" 2>/dev/null | head -n 1)
+    EXISTING_POLICY=$(echo "$EXISTING_POLICIES" | jq -c ".[] | select(.\"Asset ID\"==\"$POLICY_NAME\")" 2>/dev/null | head -n 1)
     
     # Preparar config
     COMPACT_CONFIG=""
@@ -157,7 +157,7 @@ apply_policy() {
     
     if [ -n "$EXISTING_POLICY" ] && [ "$EXISTING_POLICY" != "null" ]; then
         # Política existe - usar EDIT
-        POLICY_INSTANCE_ID=$(echo "$EXISTING_POLICY" | jq -r '.id' 2>/dev/null)
+        POLICY_INSTANCE_ID=$(echo "$EXISTING_POLICY" | jq -r '.ID' 2>/dev/null)
         echo "     ↻ Atualizando (ID: $POLICY_INSTANCE_ID)"
         
         CMD="anypoint-cli-v4 api-mgr:policy:edit"

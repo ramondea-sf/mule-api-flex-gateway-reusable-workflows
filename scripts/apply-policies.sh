@@ -39,6 +39,9 @@ fi
 ORG_ID=$(yq eval '.organizationId' $CONFIG_FILE)
 ENV_ID=$(yq eval ".environment.environmentId" $ENV_FILE)
 
+# Array para rastrear políticas desejadas (serão adicionadas durante o processamento)
+DESIRED_POLICIES=""
+
 echo "🏢 Organization ID: $ORG_ID"
 echo "🌍 Environment ID: $ENV_ID"
 echo ""
@@ -155,6 +158,9 @@ apply_policy() {
         fi
     fi
     
+    # Adicionar à lista de políticas desejadas
+    DESIRED_POLICIES="${DESIRED_POLICIES}${POLICY_NAME},"
+    
     if [ -n "$EXISTING_POLICY" ] && [ "$EXISTING_POLICY" != "null" ]; then
         # Política existe - usar EDIT
         POLICY_INSTANCE_ID=$(echo "$EXISTING_POLICY" | jq -r '.ID' 2>/dev/null)
@@ -165,10 +171,7 @@ apply_policy() {
         CMD="$CMD --client_secret \"$ANYPOINT_CLIENT_SECRET\""
         CMD="$CMD --organization \"$ORG_ID\""
         CMD="$CMD --environment \"$ENV_ID\""
-        CMD="$CMD --groupId \"$POLICY_GROUP_ID\""
-        CMD="$CMD --policyVersion \"$POLICY_VERSION\""
         CMD="$CMD --pointcut '[{\"methodRegex\":\".*\",\"uriTemplateRegex\":\".*\"}]'"
-        CMD="$CMD --output json"
         
         if [ -n "$COMPACT_CONFIG" ]; then
             CMD="$CMD --config '$COMPACT_CONFIG'"
@@ -301,18 +304,48 @@ if [ "$API_OUTBOUND_COUNT" != "0" ] && [ "$API_OUTBOUND_COUNT" != "null" ]; then
     done
 fi
 
+# ============================================================================
+# PASSO 5: REMOVER POLÍTICAS ÓRFÃS
+# ============================================================================
 echo ""
 echo "=================================================="
+echo "🗑️  PASSO 5: Remover políticas órfãs"
+echo "=================================================="
+
+# Verificar se existem políticas para remover
+POLICY_COUNT=$(echo "$EXISTING_POLICIES" | jq 'length' 2>/dev/null || echo "0")
+
+if [ "$POLICY_COUNT" != "0" ]; then
+    echo "$EXISTING_POLICIES" | jq -c '.[]' | while read -r policy; do
+        POLICY_NAME=$(echo "$policy" | jq -r '.\"Asset ID\"' 2>/dev/null)
+        POLICY_ID=$(echo "$policy" | jq -r '.ID' 2>/dev/null)
+        
+        # Verificar se política está na lista de desejadas
+        if [[ "$DESIRED_POLICIES" != *"$POLICY_NAME,"* ]]; then
+            echo "  🗑️  Removendo: $POLICY_NAME (ID: $POLICY_ID)"
+            
+            set +e
+            REMOVE_RESULT=$(anypoint-cli-v4 api-mgr:policy:remove \
+                --client_id "$ANYPOINT_CLIENT_ID" \
+                --client_secret "$ANYPOINT_CLIENT_SECRET" \
+                --organization "$ORG_ID" \
+                --environment "$ENV_ID" \
+                "$API_ID" "$POLICY_ID" 2>&1)
+            REMOVE_STATUS=$?
+            set -e
+            
+            if [ $REMOVE_STATUS -ne 0 ]; then
+                echo "     ❌ ERRO ao remover: $REMOVE_RESULT"
+            else
+                echo "     ✅ Removida"
+            fi
+        fi
+    done
+else
+    echo "   Nenhuma política existente para verificar"
+fi
+
+echo ""
 echo "✅ Aplicação de políticas concluída"
-echo "=================================================="
-echo "API ID: $API_ID"
-echo "Ambiente: $ENVIRONMENT"
-echo "Cluster: $CLUSTER"
-echo "Gateway Type: $GATEWAY_TYPE"
-echo ""
-echo "📊 Próximos passos:"
-echo "   1. Verificar políticas no API Manager"
-echo "   2. Testar endpoint com políticas aplicadas"
-echo "=================================================="
 
 

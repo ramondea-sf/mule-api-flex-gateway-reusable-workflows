@@ -315,10 +315,13 @@ echo "=================================================="
 # Verificar se existem políticas para remover
 POLICY_COUNT=$(echo "$EXISTING_POLICIES" | jq 'length' 2>/dev/null || echo "0")
 
-if [ "$POLICY_COUNT" != "0" ]; then
-    echo "$EXISTING_POLICIES" | jq -c '.[]' | while read -r policy; do
-        POLICY_NAME=$(echo "$policy" | jq -r '.\"Asset ID\"' 2>/dev/null)
-        POLICY_ID=$(echo "$policy" | jq -r '.ID' 2>/dev/null)
+if [ "$POLICY_COUNT" != "0" ] && [ "$POLICY_COUNT" != "null" ]; then
+    REMOVED_COUNT=0
+    
+    # Iterar sobre as políticas existentes
+    for idx in $(seq 0 $((POLICY_COUNT - 1))); do
+        POLICY_NAME=$(echo "$EXISTING_POLICIES" | jq -r ".[$idx].\"Asset ID\"" 2>/dev/null)
+        POLICY_ID=$(echo "$EXISTING_POLICIES" | jq -r ".[$idx].ID" 2>/dev/null)
         
         # Verificar se política está na lista de desejadas
         if [[ "$DESIRED_POLICIES" != *"$POLICY_NAME,"* ]]; then
@@ -335,14 +338,22 @@ if [ "$POLICY_COUNT" != "0" ]; then
             set -e
             
             if [ $REMOVE_STATUS -ne 0 ]; then
-                echo "     ❌ ERRO ao remover: $REMOVE_RESULT"
+                echo "     ❌ ERRO ao remover"
+                echo "$REMOVE_RESULT" | head -n 5
             else
                 echo "     ✅ Removida"
+                REMOVED_COUNT=$((REMOVED_COUNT + 1))
             fi
         fi
     done
+    
+    if [ $REMOVED_COUNT -eq 0 ]; then
+        echo "   ✅ Nenhuma política órfã encontrada"
+    else
+        echo "   📊 Total removidas: $REMOVED_COUNT"
+    fi
 else
-    echo "   Nenhuma política existente para verificar"
+    echo "   ✅ Nenhuma política existente para verificar"
 fi
 
 echo ""

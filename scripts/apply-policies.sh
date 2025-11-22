@@ -52,7 +52,7 @@ echo "=================================================="
 
 # Desabilitar exit on error temporariamente
 set +e
-EXISTING_POLICIES=$(anypoint-cli-v4 api-mgr policy list "$API_ID" \
+EXISTING_POLICIES=$(anypoint-cli-v4 api-mgr:policy:list "$API_ID" \
     --client_id "$ANYPOINT_CLIENT_ID" \
     --client_secret "$ANYPOINT_CLIENT_SECRET" \
     --organization "$ORG_ID" \
@@ -162,33 +162,33 @@ apply_policy() {
     
     echo "   🔨 Aplicando nova política..."
     
-    # Construir comando base
-    CMD="anypoint-cli-v4 api-mgr policy apply"
+    # Construir comando com sintaxe correta
+    # Sintaxe: api-mgr:policy:apply [flags] <apiInstanceId> <policyId>
+    CMD="anypoint-cli-v4 api-mgr:policy:apply"
     CMD="$CMD --client_id \"$ANYPOINT_CLIENT_ID\""
     CMD="$CMD --client_secret \"$ANYPOINT_CLIENT_SECRET\""
     CMD="$CMD --organization \"$ORG_ID\""
     CMD="$CMD --environment \"$ENV_ID\""
     CMD="$CMD --groupId \"$POLICY_GROUP_ID\""
-    CMD="$CMD --assetId \"$POLICY_NAME\""
-    CMD="$CMD --assetVersion \"$POLICY_VERSION\""
+    CMD="$CMD --policyVersion \"$POLICY_VERSION\""
     CMD="$CMD --output json"
     
-    # Adicionar ordem se fornecida
-    if [ -n "$POLICY_ORDER" ] && [ "$POLICY_ORDER" != "null" ]; then
-        CMD="$CMD --pointcutData '{\"methodRegex\":\".*\",\"uriTemplateRegex\":\".*\"}' --order $POLICY_ORDER"
-    fi
+    # Adicionar pointcut (obrigatório para definir onde a política se aplica)
+    # O pointcut define os métodos e URIs onde a política será aplicada
+    CMD="$CMD --pointcut '{\"methodRegex\":\".*\",\"uriTemplateRegex\":\".*\"}'"
     
     # Adicionar configuração se fornecida
     if [ -n "$POLICY_CONFIG" ] && [ "$POLICY_CONFIG" != "null" ] && [ "$POLICY_CONFIG" != "{}" ]; then
-        # Escapar aspas duplas no JSON
-        ESCAPED_CONFIG=$(echo "$POLICY_CONFIG" | sed 's/"/\\"/g')
-        CMD="$CMD --configurationData '$POLICY_CONFIG'"
+        # Compactar JSON para uma linha e escapar aspas
+        COMPACT_CONFIG=$(echo "$POLICY_CONFIG" | jq -c . 2>/dev/null || echo "$POLICY_CONFIG")
+        CMD="$CMD --config '$COMPACT_CONFIG'"
     fi
     
-    CMD="$CMD $API_ID"
+    # Adicionar API ID e Policy ID (asset name) como argumentos posicionais
+    CMD="$CMD \"$API_ID\" \"$POLICY_NAME\""
     
     # Debug: mostrar comando (sem credenciais)
-    echo "   🔍 Comando: api-mgr policy apply $API_ID --assetId $POLICY_NAME --assetVersion $POLICY_VERSION"
+    echo "   🔍 Comando: api-mgr:policy:apply --groupId $POLICY_GROUP_ID --policyVersion $POLICY_VERSION $API_ID $POLICY_NAME"
     
     # Executar comando
     set +e

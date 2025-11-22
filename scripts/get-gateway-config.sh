@@ -75,36 +75,39 @@ echo ""
 # ============================================================================
 echo "🔍 Passo 2: Construindo nome do gateway..."
 
-# Naming convention para DEV
-# Formato: hub-{cluster}-{tipo}-{ambiente-suffix}
-case "$ENVIRONMENT|$CLUSTER|$GATEWAY_TYPE" in
-  "dev|aws-rosa|back")
-    GATEWAY_NAME="flex-demo"
-    ;;
-  "dev|aws-rosa|dmz")
-    GATEWAY_NAME="hub-aws-front-d"
-    ;;
-  "dev|on-premise|back")
-    GATEWAY_NAME="hub-onpre-back-d"
-    ;;
-  "dev|on-premise|dmz")
-    GATEWAY_NAME="hub-onpre-front-d"
-    ;;
-  "dev|pix|back")
-    GATEWAY_NAME="hub-pix-back-d"
-    ;;
-  "dev|pj|back")
-    GATEWAY_NAME="hub-pj-back-d"
-    ;;
-  *)
-    echo "❌ Erro: Naming convention não definida para: $ENVIRONMENT|$CLUSTER|$GATEWAY_TYPE"
-    echo ""
-    echo "💡 Por favor, configure o naming pattern para este ambiente/cluster"
-    exit 1
-    ;;
-esac
+# Determinar o diretório do script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NAMING_CONFIG_FILE="$SCRIPT_DIR/../config/gateway-naming-conventions.yaml"
 
-echo "📋 Nome do gateway esperado: $GATEWAY_NAME"
+# Verificar se o arquivo de configuração existe
+if [ ! -f "$NAMING_CONFIG_FILE" ]; then
+    echo "❌ Erro: Arquivo de configuração não encontrado: $NAMING_CONFIG_FILE"
+    exit 1
+fi
+
+echo "📋 Lendo naming conventions de: $NAMING_CONFIG_FILE"
+
+# Converter ambiente para lowercase para busca no YAML
+ENV_LOWER=$(echo "$ENVIRONMENT" | tr '[:upper:]' '[:lower:]')
+
+# Buscar nome do gateway no arquivo YAML
+GATEWAY_NAME=$(yq eval ".namingConventions.${ENV_LOWER}.${CLUSTER}.${GATEWAY_TYPE}" "$NAMING_CONFIG_FILE")
+
+if [ -z "$GATEWAY_NAME" ] || [ "$GATEWAY_NAME" == "null" ]; then
+    echo "❌ Erro: Naming convention não definida para:"
+    echo "   Ambiente: $ENV_LOWER"
+    echo "   Cluster: $CLUSTER"
+    echo "   Tipo: $GATEWAY_TYPE"
+    echo ""
+    echo "💡 Por favor, configure o naming pattern em:"
+    echo "   $NAMING_CONFIG_FILE"
+    echo ""
+    echo "📋 Estrutura esperada:"
+    echo "   namingConventions.$ENV_LOWER.$CLUSTER.$GATEWAY_TYPE: \"nome-do-gateway\""
+    exit 1
+fi
+
+echo "📋 Nome do gateway encontrado: $GATEWAY_NAME"
 echo ""
 
 # ============================================================================

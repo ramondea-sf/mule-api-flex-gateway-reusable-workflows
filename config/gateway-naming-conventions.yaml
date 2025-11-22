@@ -1,0 +1,57 @@
+# ============================================================================
+# NAMING CONVENTIONS DOS GATEWAYS POR AMBIENTE/CLUSTER/TIPO
+# ============================================================================
+# Este arquivo define os nomes dos gateways Flex para cada combinação de:
+# - Ambiente (dev, qas, prod)
+# - Cluster (aws-rosa, on-premise, pix, pj)
+# - Tipo (back, dmz)
+#
+# Formato: namingConventions.<ambiente>.<cluster>.<tipo>
+# ============================================================================
+
+namingConventions:
+  # ============================================================================
+  # DESENVOLVIMENTO (DEV)
+  # ============================================================================
+  dev:
+    aws-rosa:
+      back: "flex-demo"
+      dmz: "hub-aws-front-d"
+    on-premise:
+      back: "hub-onpre-back-d"
+      dmz: "hub-onpre-front-d"
+    pix:
+      back: "hub-pix-back-d"
+    pj:
+      back: "hub-pj-back-d"
+  
+  # ============================================================================
+  # QUALIDADE/STAGING (QAS)
+  # ============================================================================
+  qas:
+    aws-rosa:
+      back: "hub-aws-back-q"
+      dmz: "hub-aws-front-q"
+    on-premise:
+      back: "hub-onpre-back-q"
+      dmz: "hub-onpre-front-q"
+    pix:
+      back: "hub-pix-back-q"
+    pj:
+      back: "hub-pj-back-q"
+  
+  # ============================================================================
+  # PRODUÇÃO (PROD)
+  # ============================================================================
+  prod:
+    aws-rosa:
+      back: "hub-aws-back-p"
+      dmz: "hub-aws-front-p"
+    on-premise:
+      back: "hub-onpre-back-p"
+      dmz: "hub-onpre-front-p"
+    pix:
+      back: "hub-pix-back-p"
+    pj:
+      back: "hub-pj-back-p"
+

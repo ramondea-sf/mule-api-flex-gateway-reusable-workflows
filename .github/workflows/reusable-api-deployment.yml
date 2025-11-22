@@ -79,13 +79,16 @@ jobs:
           swagger_path_override: ${{ inputs.swagger-path-override }}
           force_update: ${{ inputs.force-update }}
 
-      - name: Empacotar scripts e políticas corporativas
+      - name: Empacotar scripts, configurações e políticas corporativas
         run: |
-          echo "📦 Empacotando scripts e políticas corporativas..."
+          echo "📦 Empacotando scripts, configurações e políticas corporativas..."
           mkdir -p /tmp/workflow-assets
           
           # Copiar scripts
           cp -r .workflow-repo/scripts /tmp/workflow-assets/
+          
+          # Copiar configurações
+          cp -r .workflow-repo/config /tmp/workflow-assets/
           
           # Copiar políticas corporativas
           cp -r .workflow-repo/policies /tmp/workflow-assets/
@@ -95,6 +98,7 @@ jobs:
           
           echo "✅ Assets empacotados com sucesso!"
           ls -la /tmp/workflow-assets/scripts/
+          ls -la /tmp/workflow-assets/config/
           ls -la /tmp/workflow-assets/policies/
 
       - name: Upload workflow assets

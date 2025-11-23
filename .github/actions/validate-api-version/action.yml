@@ -1,0 +1,260 @@
+name: 'Validar Versionamento da API'
+description: 'Valida se a versão da API foi incrementada corretamente usando oasdiff'
+
+inputs:
+  api-name:
+    description: 'Nome da API'
+    required: true
+  current-version:
+    description: 'Versão atual da API'
+    required: true
+  swagger-path:
+    description: 'Caminho do arquivo Swagger'
+    required: true
+  client-id:
+    description: 'Anypoint Client ID'
+    required: true
+  client-secret:
+    description: 'Anypoint Client Secret'
+    required: true
+  organization-id:
+    description: 'Organization ID'
+    required: true
+
+outputs:
+  validation-status:
+    description: 'Status da validação (passed, warning, failed)'
+    value: ${{ steps.validate.outputs.status }}
+  previous-version:
+    description: 'Versão anterior encontrada no Exchange'
+    value: ${{ steps.validate.outputs.previous-version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Instalar oasdiff
+      shell: bash
+      run: |
+        echo "📦 Instalando oasdiff..."
+        wget -q https://github.com/Tufin/oasdiff/releases/latest/download/oasdiff_linux_amd64 -O /tmp/oasdiff
+        chmod +x /tmp/oasdiff
+        /tmp/oasdiff --version || echo "Oasdiff instalado"
+    
+    - name: Buscar versão anterior no Exchange
+      id: find-previous
+      shell: bash
+      env:
+        ANYPOINT_CLIENT_ID: ${{ inputs.client-id }}
+        ANYPOINT_CLIENT_SECRET: ${{ inputs.client-secret }}
+      run: |
+        echo "🔍 Buscando versões anteriores no Exchange..."
+        
+        # Listar todas as versões do asset
+        GROUP_ID="${{ inputs.organization-id }}"
+        ASSET_ID="${{ inputs.api-name }}"
+        
+        # Buscar informações do asset (todas as versões)
+        ASSET_INFO=$(anypoint-cli-v4 exchange asset list \
+          --client_id "$ANYPOINT_CLIENT_ID" \
+          --client_secret "$ANYPOINT_CLIENT_SECRET" \
+          --organization "$GROUP_ID" \
+          --search "$ASSET_ID" \
+          --output json 2>/dev/null || echo "[]")
+        
+        # Extrair versões e ordenar
+        VERSIONS=$(echo "$ASSET_INFO" | jq -r '.[] | select(.name=="${{ inputs.api-name }}") | .version' 2>/dev/null | sort -V | tail -1)
+        
+        if [ -n "$VERSIONS" ] && [ "$VERSIONS" != "null" ]; then
+          PREVIOUS_VERSION="$VERSIONS"
+          echo "previous-version=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
+          echo "has-previous=true" >> $GITHUB_OUTPUT
+          echo "✅ Versão anterior encontrada: $PREVIOUS_VERSION"
+        else
+          echo "previous-version=" >> $GITHUB_OUTPUT
+          echo "has-previous=false" >> $GITHUB_OUTPUT
+          echo "ℹ️  Nenhuma versão anterior encontrada (primeira publicação)"
+        fi
+    
+    - name: Baixar especificação anterior do Exchange
+      if: steps.find-previous.outputs.has-previous == 'true'
+      shell: bash
+      env:
+        ANYPOINT_CLIENT_ID: ${{ inputs.client-id }}
+        ANYPOINT_CLIENT_SECRET: ${{ inputs.client-secret }}
+      run: |
+        PREVIOUS_VERSION="${{ steps.find-previous.outputs.previous-version }}"
+        GROUP_ID="${{ inputs.organization-id }}"
+        ASSET_ID="${{ inputs.api-name }}"
+        
+        echo "📥 Baixando especificação v$PREVIOUS_VERSION do Exchange..."
+        
+        # Baixar o asset anterior
+        anypoint-cli-v4 exchange asset download \
+          "$GROUP_ID/$ASSET_ID/$PREVIOUS_VERSION" \
+          --client_id "$ANYPOINT_CLIENT_ID" \
+          --client_secret "$ANYPOINT_CLIENT_SECRET" \
+          --output-directory /tmp/previous-spec 2>/dev/null || true
+        
+        # Procurar arquivo da especificação
+        if [ -f /tmp/previous-spec/swagger.yaml ]; then
+          cp /tmp/previous-spec/swagger.yaml /tmp/previous-swagger.yaml
+          echo "✅ Especificação anterior baixada"
+        elif [ -f /tmp/previous-spec/swagger.json ]; then
+          cp /tmp/previous-spec/swagger.json /tmp/previous-swagger.json
+          echo "✅ Especificação anterior baixada"
+        else
+          echo "⚠️  Não foi possível baixar especificação anterior"
+          echo "skip-comparison=true" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Comparar especificações e validar versão
+      id: validate
+      if: steps.find-previous.outputs.has-previous == 'true'
+      shell: bash
+      run: |
+        CURRENT_VERSION="${{ inputs.current-version }}"
+        PREVIOUS_VERSION="${{ steps.find-previous.outputs.previous-version }}"
+        
+        echo ""
+        echo "=================================================="
+        echo "📊 VALIDAÇÃO DE VERSIONAMENTO SEMVER"
+        echo "=================================================="
+        echo "Versão anterior: $PREVIOUS_VERSION"
+        echo "Versão nova:     $CURRENT_VERSION"
+        echo ""
+        
+        # Verificar se arquivo anterior existe
+        PREV_FILE=""
+        if [ -f /tmp/previous-swagger.yaml ]; then
+          PREV_FILE="/tmp/previous-swagger.yaml"
+        elif [ -f /tmp/previous-swagger.json ]; then
+          PREV_FILE="/tmp/previous-swagger.json"
+        fi
+        
+        if [ -z "$PREV_FILE" ]; then
+          echo "⚠️  Não foi possível comparar (especificação anterior não disponível)"
+          echo "status=warning" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Executar oasdiff
+        echo "🔍 Analisando mudanças na especificação..."
+        echo ""
+        
+        /tmp/oasdiff breaking "$PREV_FILE" "${{ inputs.swagger-path }}" --format text > /tmp/breaking-changes.txt 2>&1 || BREAKING_EXIT=$?
+        /tmp/oasdiff changelog "$PREV_FILE" "${{ inputs.swagger-path }}" --format text > /tmp/changelog.txt 2>&1 || true
+        
+        echo "📋 Relatório de Mudanças:"
+        echo "---"
+        cat /tmp/changelog.txt | head -30
+        echo "---"
+        echo ""
+        
+        # Parsear versões SEMVER
+        PREV_MAJOR=$(echo $PREVIOUS_VERSION | cut -d. -f1)
+        PREV_MINOR=$(echo $PREVIOUS_VERSION | cut -d. -f2)
+        PREV_PATCH=$(echo $PREVIOUS_VERSION | cut -d. -f3)
+        
+        CURR_MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
+        CURR_MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
+        CURR_PATCH=$(echo $CURRENT_VERSION | cut -d. -f3)
+        
+        # Determinar tipo de mudança esperada
+        HAS_BREAKING=false
+        if [ -s /tmp/breaking-changes.txt ] && grep -q "breaking" /tmp/breaking-changes.txt; then
+          HAS_BREAKING=true
+        fi
+        
+        # Detectar se há novas features (novos endpoints, novos campos)
+        HAS_NEW_FEATURES=false
+        if grep -qE "(added|new endpoint|new operation)" /tmp/changelog.txt 2>/dev/null; then
+          HAS_NEW_FEATURES=true
+        fi
+        
+        # Validar incremento de versão
+        VALIDATION_PASSED=true
+        RECOMMENDATION=""
+        
+        if [ "$HAS_BREAKING" = true ]; then
+          echo "⚠️  BREAKING CHANGES DETECTADAS!"
+          echo ""
+          echo "Mudanças incompatíveis encontradas:"
+          cat /tmp/breaking-changes.txt | head -10
+          echo ""
+          
+          if [ $CURR_MAJOR -le $PREV_MAJOR ]; then
+            VALIDATION_PASSED=false
+            RECOMMENDATION="Você tem BREAKING CHANGES. Incremente a versão MAJOR: $PREV_MAJOR.$PREV_MINOR.$PREV_PATCH → $(($PREV_MAJOR + 1)).0.0"
+          else
+            echo "✅ Versão MAJOR incrementada corretamente"
+          fi
+          
+        elif [ "$HAS_NEW_FEATURES" = true ]; then
+          echo "ℹ️  Novas funcionalidades detectadas"
+          
+          if [ $CURR_MAJOR -gt $PREV_MAJOR ]; then
+            echo "✅ Versão MAJOR incrementada (aceitável, mas não necessário)"
+          elif [ $CURR_MINOR -le $PREV_MINOR ] && [ $CURR_MAJOR -eq $PREV_MAJOR ]; then
+            VALIDATION_PASSED=false
+            RECOMMENDATION="Você adicionou funcionalidades. Incremente a versão MINOR: $PREV_MAJOR.$PREV_MINOR.$PREV_PATCH → $PREV_MAJOR.$(($PREV_MINOR + 1)).0"
+          else
+            echo "✅ Versão MINOR incrementada corretamente"
+          fi
+          
+        else
+          echo "ℹ️  Apenas correções/ajustes detectados"
+          
+          if [ $CURR_MAJOR -gt $PREV_MAJOR ] || [ $CURR_MINOR -gt $PREV_MINOR ]; then
+            echo "⚠️  Versão incrementada mais do que o necessário (mas aceitável)"
+          elif [ $CURR_PATCH -le $PREV_PATCH ] && [ $CURR_MAJOR -eq $PREV_MAJOR ] && [ $CURR_MINOR -eq $PREV_MINOR ]; then
+            VALIDATION_PASSED=false
+            RECOMMENDATION="Você fez mudanças. Incremente a versão PATCH: $PREV_MAJOR.$PREV_MINOR.$PREV_PATCH → $PREV_MAJOR.$PREV_MINOR.$(($PREV_PATCH + 1))"
+          else
+            echo "✅ Versão PATCH incrementada corretamente"
+          fi
+        fi
+        
+        echo ""
+        echo "=================================================="
+        
+        if [ "$VALIDATION_PASSED" = false ]; then
+          echo "❌ VALIDAÇÃO FALHOU"
+          echo ""
+          echo "📚 Lição de SEMVER:"
+          echo "$RECOMMENDATION"
+          echo ""
+          echo "Regras:"
+          echo "• MAJOR (X.0.0): Breaking changes (incompatível com versão anterior)"
+          echo "• MINOR (x.Y.0): Novas funcionalidades (compatível com versão anterior)"
+          echo "• PATCH (x.y.Z): Correções de bugs (compatível com versão anterior)"
+          echo ""
+          echo "=================================================="
+          echo "status=failed" >> $GITHUB_OUTPUT
+          exit 1
+        else
+          echo "✅ VALIDAÇÃO PASSOU"
+          echo ""
+          echo "Versionamento está correto! 🎉"
+          echo "=================================================="
+          echo "status=passed" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Primeira publicação (sem validação)
+      if: steps.find-previous.outputs.has-previous == 'false'
+      shell: bash
+      run: |
+        echo ""
+        echo "=================================================="
+        echo "🎉 PRIMEIRA PUBLICAÇÃO"
+        echo "=================================================="
+        echo "Esta é a primeira versão da API no Exchange."
+        echo "Versão: ${{ inputs.current-version }}"
+        echo ""
+        echo "📚 Lembre-se do SEMVER para próximas versões:"
+        echo "• MAJOR (X.0.0): Breaking changes"
+        echo "• MINOR (x.Y.0): Novas funcionalidades"
+        echo "• PATCH (x.y.Z): Correções de bugs"
+        echo "=================================================="
+        echo ""
+        echo "status=passed" >> $GITHUB_OUTPUT
+

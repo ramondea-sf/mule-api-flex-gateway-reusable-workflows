@@ -1,0 +1,35 @@
+name: 'Apply SLA Tiers'
+description: 'Aplica SLA Tiers configurados no ambiente'
+
+inputs:
+  api-id:
+    description: 'ID da API no API Manager'
+    required: true
+  environment:
+    description: 'Nome do ambiente (dev, hml, prod)'
+    required: true
+  anypoint-client-id:
+    description: 'Anypoint Platform Client ID'
+    required: true
+  anypoint-client-secret:
+    description: 'Anypoint Platform Client Secret'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Apply SLA Tiers
+      shell: bash
+      env:
+        API_ID: ${{ inputs.api-id }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        ANYPOINT_CLIENT_ID: ${{ inputs.anypoint-client-id }}
+        ANYPOINT_CLIENT_SECRET: ${{ inputs.anypoint-client-secret }}
+      run: |
+        echo "🎯 Aplicando SLA Tiers"
+        echo "API ID: $API_ID"
+        echo "Ambiente: $ENVIRONMENT"
+        
+        chmod +x scripts/apply-sla-tiers.sh
+        ./scripts/apply-sla-tiers.sh "$API_ID" "$ENVIRONMENT"
+

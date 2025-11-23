@@ -109,10 +109,56 @@ jobs:
           retention-days: 1
 
 
+  validate-version:
+    name: Validar Versionamento SEMVER
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.should-deploy == 'true'
+    outputs:
+      validation-status: ${{ steps.validate-semver.outputs.validation-status }}
+    
+    steps:
+      - name: Checkout repositório da API
+        uses: actions/checkout@v4
+
+      - name: Checkout repositório de workflows
+        uses: actions/checkout@v4
+        with:
+          repository: ramondea-sf/mule-api-flex-gateway-reusable-workflows
+          ref: main
+          path: .workflow-repo
+
+      - name: Setup ferramentas
+        uses: ./.workflow-repo/.github/actions/setup-tools
+        with:
+          install_nodejs: 'true'
+          install_yq: 'true'
+          install_anypoint_cli: 'true'
+          install_jq: 'false'
+      
+      - name: Ler Organization ID e Swagger Path
+        id: read-config
+        run: |
+          ORG_ID=$(yq eval '.organizationId' api/api-config.yaml)
+          SWAGGER_PATH=$(yq eval '.api.swaggerPath' api/api-config.yaml)
+          echo "org-id=$ORG_ID" >> $GITHUB_OUTPUT
+          echo "swagger-path=$SWAGGER_PATH" >> $GITHUB_OUTPUT
+
+      - name: Validar versionamento SEMVER
+        id: validate-semver
+        uses: ramondea-sf/mule-api-flex-gateway-reusable-workflows/.github/actions/validate-api-version@main
+        with:
+          api-name: ${{ needs.validate.outputs.api-name }}
+          current-version: ${{ needs.validate.outputs.api-version }}
+          swagger-path: ${{ steps.read-config.outputs.swagger-path }}
+          client-id: ${{ secrets.ANYPOINT_CLIENT_ID }}
+          client-secret: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+          organization-id: ${{ steps.read-config.outputs.org-id }}
+
   publish-to-exchange:
     name: Publicar no Exchange
     runs-on: ubuntu-latest
-    needs: validate
+    needs: [validate, validate-version]
     if: needs.validate.outputs.should-deploy == 'true'
     
     steps:
@@ -166,7 +212,7 @@ jobs:
   deploy-api:
     name: Deploy API
     runs-on: ubuntu-latest
-    needs: [validate, publish-to-exchange]
+    needs: [validate, validate-version, publish-to-exchange]
     outputs:
       api-id: ${{ steps.get-api-id.outputs.api-id }}
       exposed-path: ${{ steps.get-api-id.outputs.exposed-path }}
@@ -347,10 +393,66 @@ jobs:
             "${{ needs.validate.outputs.cluster }}" \
             "${{ needs.validate.outputs.is-public }}"
 
+  apply-sla-tiers:
+    name: Aplicar SLA Tiers
+    runs-on: ubuntu-latest
+    needs: [validate, deploy-api, apply-policies]
+    if: needs.deploy-api.result == 'success'
+    
+    steps:
+      - name: Setup Tools
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          path: workflow-repo
+          sparse-checkout: |
+            .github/actions/setup-tools
+      
+      - name: Install Dependencies
+        uses: ./workflow-repo/.github/actions/setup-tools
+      
+      - name: Download workspace assets
+        uses: actions/download-artifact@v4
+        with:
+          name: workflow-assets
+          path: /tmp/workflow-assets
+
+      - name: Checkout API workspace
+        uses: actions/checkout@v4
+        with:
+          path: api-workspace
+
+      - name: Download API Info
+        uses: actions/download-artifact@v4
+        with:
+          name: api-info
+          path: /tmp/
+
+      - name: Aplicar SLA Tiers
+        env:
+          ANYPOINT_CLIENT_ID: ${{ secrets.ANYPOINT_CLIENT_ID }}
+          ANYPOINT_CLIENT_SECRET: ${{ secrets.ANYPOINT_CLIENT_SECRET }}
+        run: |
+          cd api-workspace
+          API_ID=$(cat /tmp/api-id.txt)
+          
+          echo "=================================================="
+          echo "🎯 Aplicando SLA Tiers"
+          echo "=================================================="
+          echo "API ID: $API_ID"
+          echo "Ambiente: ${{ inputs.environment }}"
+          echo ""
+          
+          # Executar script de aplicação de SLA Tiers
+          chmod +x /tmp/workflow-assets/scripts/apply-sla-tiers.sh
+          /tmp/workflow-assets/scripts/apply-sla-tiers.sh \
+            "$API_ID" \
+            "${{ inputs.environment }}"
+
   notify:
     name: Notificar Resultado
     runs-on: ubuntu-latest
-    needs: [validate, deploy-api, apply-policies]
+    needs: [validate, deploy-api, apply-policies, apply-sla-tiers]
     if: always()
     
     steps:
@@ -367,6 +469,7 @@ jobs:
           echo "## Status dos Jobs" >> $GITHUB_STEP_SUMMARY
           echo "- **Deploy:** ${{ needs.deploy-api.result == 'success' && '✅ Sucesso' || '❌ Falha' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Políticas:** ${{ needs.apply-policies.result == 'success' && '✅ Sucesso' || needs.apply-policies.result == 'skipped' && '⏭️ Pulado' || '❌ Falha' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **SLA Tiers:** ${{ needs.apply-sla-tiers.result == 'success' && '✅ Sucesso' || needs.apply-sla-tiers.result == 'skipped' && '⏭️ Pulado' || '❌ Falha' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Detalhes da API" >> $GITHUB_STEP_SUMMARY
           echo "**Path exposto:** \`${{ needs.deploy-api.outputs.exposed-path }}\`" >> $GITHUB_STEP_SUMMARY

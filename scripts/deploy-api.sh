@@ -47,13 +47,13 @@ ENV_ID=$(yq eval ".environment.environmentId" $ENV_FILE)
 
 # Configurações do Upstream (backend)
 UPSTREAM_URI=$(yq eval ".environment.upstream.uri" $ENV_FILE)
-BASE_PATH=$(yq eval ".environment.upstream.basePath" $ENV_FILE)
 OUTBOUND_TLS_CONTEXT=$(yq eval ".environment.upstream.outboundTlsContextId" $ENV_FILE)
 OUTBOUND_SECRET_GROUP=$(yq eval ".environment.upstream.outboundSecretGroupId" $ENV_FILE)
 
 # Configurações do Gateway (listener)
 GATEWAY_SCHEMA=$(yq eval ".environment.gateway.schema" $ENV_FILE)
 GATEWAY_PORT=$(yq eval ".environment.gateway.port" $ENV_FILE)
+BASE_PATH=$(yq eval ".environment.gateway.basePath" $ENV_FILE)
 INBOUND_TLS_CONTEXT=$(yq eval ".environment.gateway.inboundTlsContextId" $ENV_FILE)
 INBOUND_SECRET_GROUP=$(yq eval ".environment.gateway.inboundSecretGroupId" $ENV_FILE)
 

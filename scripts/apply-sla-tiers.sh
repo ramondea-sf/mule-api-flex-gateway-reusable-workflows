@@ -166,3 +166,4 @@ echo "   - Já existiam: $SKIPPED_COUNT"
 echo "   - Total configurados: $SLA_COUNT"
 echo "=================================================="
 
+

@@ -1,0 +1,83 @@
+# ============================================================================
+# POLÍTICAS CORPORATIVAS - DEV / AWS-ROSA / PUBLIC (DMZ)
+# ============================================================================
+# Estas políticas são aplicadas automaticamente em TODAS as APIs públicas
+# deployadas no cluster AWS-ROSA em ambiente DEV
+#
+# IMPORTANTE: APIs públicas possuem políticas de segurança mais restritivas
+# que APIs privadas, pois estão expostas à internet
+
+policies:
+  inbound:
+    # Rate Limiting mais restritivo para APIs públicas
+    - name: "rate-limiting"
+      enabled: true
+      version: "1.3.2"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 1
+      configuration:
+        rateLimits:
+          - timePeriodInMilliseconds: 60000
+            maximumRequests: 500  # Mais restritivo que private
+        exposeHeaders: true
+        clusterizable: true
+
+    # IP Allowlist - apenas IPs conhecidos (exemplo para DEV - mais permissivo)
+    - name: "ip-allowlist"
+      enabled: true
+      version: "1.3.1"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 2
+      configuration:
+        ips:
+          # Adicionar ranges de IP corporativos aqui
+          - "10.0.0.0/8"      # Rede interna
+          - "172.16.0.0/12"   # Rede interna
+          - "192.168.0.0/16"  # Rede interna
+        # Em DEV, aceitar também IPs externos para testes
+        # Em PROD, esta lista seria muito mais restritiva
+
+    # Message Logging corporativo
+    - name: "message-logging-flex"
+      enabled: true
+      version: "1.2.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 3
+      configuration:
+        loggingConfiguration:
+          - itemName: "Corporate Logging - Public API"
+            itemData:
+              message: "#[{timestamp: now(), method: attributes.method, path: attributes.requestPath, clientIp: attributes.headers['x-forwarded-for'] default attributes.remoteAddress, userAgent: attributes.headers['user-agent']}]"
+              level: "INFO"
+              firstSection: true
+              secondSection: true
+
+  outbound:
+    # CORS mais restritivo para APIs públicas
+    - name: "cors"
+      enabled: true
+      version: "1.2.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 1
+      configuration:
+        publicResource: false
+        supportCredentials: true
+        allowedOrigins:
+          # Em DEV, permitir origens específicas para testes
+          - origin: "https://dev.crefisa.com.br"
+          - origin: "http://localhost:3000"
+          - origin: "http://localhost:8080"
+        allowedMethods:
+          - method: "GET"
+          - method: "POST"
+          - method: "OPTIONS"
+        allowedHeaders:
+          - header: "Content-Type"
+          - header: "Authorization"
+          - header: "X-Requested-With"
+        exposeHeaders:
+          - header: "X-RateLimit-Limit"
+          - header: "X-RateLimit-Remaining"
+        maxAge: 1800
+
+

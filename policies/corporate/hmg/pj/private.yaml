@@ -1,0 +1,55 @@
+# ============================================================================
+# POLÍTICAS CORPORATIVAS - DEV / PJ / PRIVATE
+# ============================================================================
+# Estas políticas são aplicadas automaticamente em TODAS as APIs do cluster PJ
+# em ambiente DEV
+#
+# IMPORTANTE: O cluster PJ é dedicado a APIs de Pessoa Jurídica e possui
+# políticas específicas de segurança
+
+policies:
+  inbound:
+    # Rate Limiting para PJ
+    - name: "rate-limiting"
+      enabled: true
+      version: "1.3.2"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 1
+      configuration:
+        rateLimits:
+          - timePeriodInMilliseconds: 60000
+            maximumRequests: 1500
+        exposeHeaders: true
+        clusterizable: true
+
+    # Message Logging
+    - name: "message-logging-flex"
+      enabled: true
+      version: "1.2.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 2
+      configuration:
+        loggingConfiguration:
+          - itemName: "PJ Logging"
+            itemData:
+              message: "#[{timestamp: now(), method: attributes.method, path: attributes.requestPath, cnpj: attributes.headers['x-cnpj'] default 'not-provided'}]"
+              level: "INFO"
+              firstSection: true
+              secondSection: true
+
+    # Header Injection - adicionar headers do cluster PJ
+    - name: "header-injection"
+      enabled: true
+      version: "1.1.0"
+      groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      order: 3
+      configuration:
+        inboundHeaders:
+          - key: "x-pj-cluster"
+            value: "pj-dev"
+          - key: "x-customer-type"
+            value: "corporate"
+
+  outbound: []
+
+

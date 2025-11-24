@@ -1,0 +1,18 @@
+# Políticas Corporativas - DEV / AWS-ROSA / PRIVATE
+
+policies:
+  inbound:
+    - policyRef:
+        name: "message-logging"
+        version: "2.0.2"
+        groupId: "68ef9520-24e9-4cf2-b2f5-620025690913"
+      config:
+        loggingConfiguration:
+          - itemName: "Corporate Logging"
+            itemData:
+              message: "#[attributes]"
+              level: "INFO"
+              firstSection: true
+              secondSection: true
+
+  outbound: []
